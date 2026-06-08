@@ -1,0 +1,61 @@
+# Secrets and local config
+*.env
+*.bak
+*.sql.bak
+api/config.php
+outputs/godaddy_prueba/api/config.php
+sealy_config.php
+check50m_config.php
+
+# Packaged deliverables
+outputs/*.apk
+outputs/*.aab
+outputs/*.ipa
+outputs/*.zip
+outputs/flutter_piloto_check50m/
+outputs/prototipo_*.html
+outputs/schema_mysql_inicial.sql
+outputs/staraz_site_bd_completa.sql
+
+# Runtime uploads
+outputs/godaddy_prueba/api/uploads/checks/
+outputs/godaddy_prueba/api/uploads/**/*.jpg
+outputs/godaddy_prueba/api/uploads/**/*.jpeg
+outputs/godaddy_prueba/api/uploads/**/*.png
+sealy_uploads/
+
+# Flutter/Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/coverage/
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/android/app/*.jks
+**/android/app/*.keystore
+**/android/app/release/
+**/android/app/profile/
+**/android/app/debug/
+
+# iOS/macOS generated files
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Pods/
+**/ios/Runner.xcworkspace/
+**/ios/Podfile.lock
+**/ios/build/
+**/ios/.symlinks/
+**/*.xcuserstate
+**/*.xcuserdata/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

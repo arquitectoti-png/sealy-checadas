@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sealy Admin</title>
+  <link rel="icon" type="image/png" href="./assets/icon-192.png">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #fff;
+      --text: #152033;
+      --muted: #667085;
+      --line: #dce3ed;
+      --primary: #145df5;
+      --danger: #c73535;
+      --success: #168a4a;
+      --warning: #a76200;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    .login { min-height: 100vh; display: grid; place-items: center; padding: 18px; }
+    .layout { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
+    aside { background: #101827; color: white; padding: 20px; }
+    main { padding: 22px; max-width: 1280px; width: 100%; }
+    .brand { font-size: 20px; font-weight: 700; margin-bottom: 5px; display: flex; align-items: center; gap: 10px; }
+    .brand img { width: 44px; height: 44px; object-fit: contain; }
+    .login-logo { display: block; width: min(210px, 72%); margin: 0 auto 18px; }
+    .muted-dark { color: #aeb9ca; font-size: 13px; margin-bottom: 18px; }
+    nav { display: grid; gap: 8px; margin-top: 16px; }
+    nav button, .ghost-dark {
+      border: 0; background: transparent; color: #d5dbea; text-align: left;
+      padding: 11px 12px; border-radius: 8px; cursor: pointer; font-weight: 700;
+    }
+    nav button.active, nav button:hover, .ghost-dark:hover { background: #263349; color: white; }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    .subtitle, .small { color: var(--muted); font-size: 13px; }
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    .grid { display: grid; gap: 14px; }
+    .two { grid-template-columns: minmax(0, 1fr) minmax(330px, .7fr); }
+    .three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+    input, select, textarea {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+      font: inherit; background: #fff; color: var(--text);
+    }
+    textarea { min-height: 150px; resize: vertical; }
+    .btn {
+      border: 0; border-radius: 8px; background: var(--primary); color: #fff;
+      padding: 10px 12px; cursor: pointer; font-weight: 700;
+    }
+    .btn.secondary { background: #eef2f7; color: var(--text); }
+    .btn.danger { background: var(--danger); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: middle; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .status { display: inline-flex; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 700; }
+    .ok { background: #e8f7ef; color: var(--success); }
+    .warn { background: #fff4df; color: var(--warning); }
+    .bad { background: #fdeeee; color: var(--danger); }
+    .metric h1 { margin-top: 4px; }
+    .chart-wrap { min-height: 260px; }
+    canvas { width: 100%; max-width: 100%; height: 260px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    body.supervisor-mode #usersTable .actions button,
+    body.supervisor-mode #storesTable .actions button { display: none; }
+    body.supervisor-mode #usersTable .actions::after { content: "Solo lectura"; color: var(--muted); font-size: 13px; }
+    body.supervisor-mode #storesTable .actions::after { content: "Consulta"; color: var(--muted); font-size: 13px; }
+    .hidden { display: none !important; }
+    @media (max-width: 920px) {
+      .layout, .two, .three { grid-template-columns: 1fr; }
+      main { padding: 16px; }
+      nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .topbar { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <section id="loginView" class="login">
+    <div class="card" style="width:min(430px,100%)">
+      <h1>Sealy Admin</h1>
+      <img class="login-logo" src="./assets/sealy.png" alt="Sealy">
+      <p class="subtitle">Supervisores y administradores.</p>
+      <input id="apiUrl" type="hidden" value="/api">
+      <label>Usuario<input id="login"></label>
+      <label>Contrasena<input id="password" type="password"></label>
+      <button id="loginBtn" class="btn">Ingresar</button>
+    </div>
+  </section>
+
+  <section id="appView" class="layout hidden">
+    <aside>
+      <div class="brand"><img src="./assets/sealy.png" alt="Sealy">Sealy</div>
+      <div id="userInfo" class="muted-dark">Panel</div>
+      <button id="logoutBtn" class="ghost-dark" style="width:100%">Cerrar sesión</button>
+      <nav>
+        <button class="active" data-view="dashboard">Dashboard</button>
+        <button data-view="users">Usuarios</button>
+        <button class="admin-only" data-view="assignments">Asignaciones</button>
+        <button data-view="stores">Tiendas</button>
+        <button data-view="checks">Checadas</button>
+        <button data-view="reports">Reportes</button>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1 id="title">Dashboard</h1>
+          <p id="subtitle" class="subtitle">Resumen diario del sistema.</p>
+        </div>
+        <button id="refreshBtn" class="btn secondary">Actualizar</button>
+      </div>
+
+      <section id="dashboard" class="view">
+        <div class="grid three">
+          <div class="card metric"><div class="small">Personal activo</div><h1 id="totalStaff">-</h1></div>
+          <div class="card metric"><div class="small">Supervisores activos</div><h1 id="totalSupervisors">-</h1></div>
+          <div class="card metric"><div class="small">Tiendas totales</div><h1 id="totalStores">-</h1><div class="small">Activas: <span id="activeStores">-</span> / Inactivas: <span id="inactiveStores">-</span></div></div>
+          <div class="card metric"><div class="small">Con ingreso</div><h1 id="withIngreso">-</h1></div>
+          <div class="card metric"><div class="small">Completos</div><h1 id="completed">-</h1></div>
+          <div class="card metric"><div class="small">Pendientes de ingreso</div><h1 id="pendingStaff">-</h1></div>
+          <div class="card metric"><div class="small">Intentos bloqueados</div><h1 id="incidents">-</h1></div>
+          <div class="card metric"><div class="small">Revision manual</div><h1 id="manualReview">-</h1></div>
+          <div class="card metric"><div class="small">Sincronizadas offline</div><h1 id="offlineSynced">-</h1></div>
+          <div class="card metric"><div class="small">Horas laboradas hoy</div><h1 id="workedTotal">-</h1><div class="small">Promedio: <span id="workedAverage">-</span></div></div>
+          <div class="card metric"><div class="small">Tiempo de comida hoy</div><h1 id="mealTotal">-</h1><div class="small">Promedio: <span id="mealAverage">-</span></div></div>
+        </div>
+        <div class="grid two">
+          <div class="card chart-wrap">
+            <h2>Flujo por fase</h2>
+            <canvas id="phaseChart" width="760" height="260"></canvas>
+          </div>
+          <div class="card">
+            <h2>Resumen por supervisor</h2>
+            <div id="supervisorSummary" class="small">Cargando...</div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Tiendas con actividad</h2>
+          <div id="storeSummary" class="small">Cargando...</div>
+        </div>
+        <div class="card">
+          <h2>Tiendas por cadena</h2>
+          <div id="chainSummary" class="small">Cargando...</div>
+        </div>
+      </section>
+
+      <section id="users" class="view hidden">
+        <div class="grid two">
+          <div class="card">
+            <h2>Usuarios</h2>
+            <div id="usersTable" class="small">Cargando...</div>
+          </div>
+          <div class="card admin-only">
+            <h2 id="userFormTitle">Agregar usuario</h2>
+            <input id="userId" type="hidden">
+            <label>Nombre<input id="userFullName"></label>
+            <label>Email<input id="userEmail"></label>
+            <label>Telefono<input id="userPhone"></label>
+            <label>No. empleado<input id="userEmployee"></label>
+            <label>Rol<select id="userRole"><option value="staff">Promotor</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label>
+            <label>Supervisor<select id="userSupervisor"></select></label>
+            <label>Contraseña inicial / nueva<input id="userPassword" placeholder="Opcional al editar"></label>
+            <label>Estado<select id="userStatus"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
+            <div class="actions">
+              <button id="saveUserBtn" class="btn">Guardar usuario</button>
+              <button id="resetUserFormBtn" class="btn secondary">Limpiar</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="assignments" class="view hidden admin-only">
+        <div class="grid two">
+          <div class="card">
+            <h2>Asignar promotores a supervisor</h2>
+            <label>Supervisor<select id="assignSupervisor"></select></label>
+            <label>Promotores disponibles/asignables<select id="assignStaff" multiple size="12"></select></label>
+            <button id="assignBtn" class="btn">Asignar seleccionados</button>
+            <p class="small">Puedes seleccionar varios con Ctrl o Shift.</p>
+          </div>
+          <div class="card">
+            <h2>Promotores por supervisor</h2>
+            <div id="assignmentTable" class="small">Cargando...</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="stores" class="view hidden">
+        <div class="grid two">
+          <div class="card">
+            <h2>Tiendas</h2>
+            <div id="storesTable" class="small">Cargando...</div>
+          </div>
+          <div class="card admin-only">
+            <h2 id="storeFormTitle">Agregar tienda</h2>
+            <input id="storeId" type="hidden">
+            <label>Cadena<input id="storeChain" placeholder="Coppel, Suburbia, Liverpool"></label>
+            <label>Nombre<input id="storeName"></label>
+            <label>Dirección<input id="storeAddress"></label>
+            <label>Latitud<input id="storeLat"></label>
+            <label>Longitud<input id="storeLng"></label>
+            <label>Radio metros<input id="storeRadius" value="50"></label>
+            <label>Estado<select id="storeStatus"><option value="active">Activa</option><option value="inactive">Inactiva</option></select></label>
+            <div class="actions">
+              <button id="saveStoreBtn" class="btn">Guardar tienda</button>
+              <button id="resetStoreFormBtn" class="btn secondary">Limpiar</button>
+            </div>
+          </div>
+        </div>
+        <div class="card admin-only">
+          <h2>Carga masiva de tiendas</h2>
+          <p class="small">Formato CSV: cadena,nombre,direccion,latitud,longitud,radio</p>
+          <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50</textarea>
+          <button id="importStoresBtn" class="btn">Cargar tiendas</button>
+        </div>
+      </section>
+
+      <section id="checks" class="view hidden">
+        <div class="card">
+          <h2>Visualizacion de checadas</h2>
+          <div class="grid three">
+            <label>Inicio<input id="checksStart" type="date"></label>
+            <label>Fin<input id="checksEnd" type="date"></label>
+            <label>Supervisor<select id="checksSupervisor"></select></label>
+          </div>
+          <button id="loadChecksBtn" class="btn">Consultar checadas</button>
+        </div>
+        <div class="card">
+          <div id="checksTable" class="small">Consulta un periodo para ver checadas.</div>
+        </div>
+      </section>
+
+      <section id="reports" class="view hidden">
+        <div class="card">
+          <h2>Reportes</h2>
+          <div class="grid three">
+            <label>Inicio<input id="reportStart" type="date"></label>
+            <label>Fin<input id="reportEnd" type="date"></label>
+            <label>Supervisor<select id="reportSupervisor"></select></label>
+          </div>
+          <div class="actions">
+            <button id="downloadChecksBtn" class="btn">Bajar checadas por periodo</button>
+            <button id="downloadAssignmentsBtn" class="btn secondary">Bajar promotores asignados</button>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h2>Columnas para reporte de checadas</h2>
+            <div id="reportColumns" class="grid three"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <script>
+    let token = localStorage.getItem("adminToken") || "";
+    let user = JSON.parse(localStorage.getItem("adminUser") || "null");
+    let users = [];
+    let stores = [];
+    let currentView = "dashboard";
+    const $ = id => document.getElementById(id);
+
+    $("apiUrl").value = "/api";
+
+    function apiBase() { return $("apiUrl").value.replace(/\/+$/, ""); }
+    async function request(path, options = {}) {
+      const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(apiBase() + path, Object.assign({}, options, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "No se pudo completar la solicitud");
+      return data;
+    }
+    function csvUrl(path) {
+      const sep = path.includes("?") ? "&" : "?";
+      return `${apiBase()}${path}${sep}token_not_supported=1`;
+    }
+    async function downloadCsv(path, filename) {
+      const res = await fetch(apiBase() + path, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("No se pudo descargar reporte");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    async function openProtectedPhoto(path) {
+      const res = await fetch(apiBase() + path, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("No se pudo abrir la foto");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+    function today() { return new Date().toISOString().slice(0, 10); }
+    function firstDay() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
+    function roleLabel(role) { return role === "staff" ? "Promotor" : role === "supervisor" ? "Supervisor" : "Administrador"; }
+    function isAdmin() { return user && user.role === "admin"; }
+    function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+    function statusBadge(status) { return `<span class="status ${status === "active" ? "ok" : "bad"}">${status === "active" ? "Activo" : "Inactivo"}</span>`; }
+    function renderPhaseChart(byPhase) {
+      const canvas = $("phaseChart");
+      const ctx = canvas.getContext("2d");
+      const labels = [
+        ["ingreso", "Ingreso"],
+        ["salida_comer", "Salida comer"],
+        ["entrada_comer", "Entrada comer"],
+        ["salida", "Salida"]
+      ];
+      const values = labels.map(([key]) => Number(byPhase[key] || 0));
+      const max = Math.max(1, ...values);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gap = 28;
+      const barW = (canvas.width - 80 - gap * (labels.length - 1)) / labels.length;
+      labels.forEach(([, label], index) => {
+        const value = values[index];
+        const height = Math.round((canvas.height - 85) * value / max);
+        const x = 45 + index * (barW + gap);
+        const y = canvas.height - 45 - height;
+        ctx.fillStyle = "#145df5";
+        ctx.fillRect(x, y, barW, height);
+        ctx.fillStyle = "#152033";
+        ctx.font = "14px Arial";
+        ctx.fillText(String(value), x + barW / 2 - 4, y - 8);
+        ctx.fillStyle = "#667085";
+        ctx.font = "12px Arial";
+        ctx.fillText(label, x, canvas.height - 18);
+      });
+      ctx.strokeStyle = "#dce3ed";
+      ctx.beginPath();
+      ctx.moveTo(35, canvas.height - 45);
+      ctx.lineTo(canvas.width - 20, canvas.height - 45);
+      ctx.stroke();
+    }
+    function renderSupervisorSummary(rows) {
+      if (!rows.length) {
+        $("supervisorSummary").textContent = "Sin datos de supervisores.";
+        return;
+      }
+      $("supervisorSummary").innerHTML = `<table><thead><tr><th>Supervisor</th><th>Promotores</th><th>Ingreso</th><th>Completos</th></tr></thead><tbody>${rows.map(r => `
+        <tr><td>${escapeHtml(r.supervisor_name)}</td><td>${r.staff_total}</td><td>${r.with_ingreso}</td><td>${r.completed}</td></tr>`).join("")}</tbody></table>`;
+    }
+    function renderStoreSummary(rows) {
+      if (!rows.length) {
+        $("storeSummary").textContent = "Sin checadas en tiendas para la fecha.";
+        return;
+      }
+      $("storeSummary").innerHTML = `<table><thead><tr><th>Cadena</th><th>Tienda</th><th>Checadas</th><th>Promotores</th></tr></thead><tbody>${rows.map(r => `
+        <tr><td>${escapeHtml(r.chain || "-")}</td><td>${escapeHtml(r.name)}</td><td>${r.checks_count}</td><td>${r.staff_count}</td></tr>`).join("")}</tbody></table>`;
+    }
+    function renderChainSummary(rows) {
+      if (!rows.length) {
+        $("chainSummary").textContent = "Sin tiendas cargadas.";
+        return;
+      }
+      $("chainSummary").innerHTML = `<table><thead><tr><th>Cadena</th><th>Total</th><th>Activas</th><th>Inactivas</th></tr></thead><tbody>${rows.map(r => `
+        <tr><td>${escapeHtml(r.chain || "-")}</td><td>${r.total}</td><td>${r.active}</td><td>${r.inactive}</td></tr>`).join("")}</tbody></table>`;
+    }
+
+    async function login() {
+      const data = await request("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ login: $("login").value, password: $("password").value, client_type: "web" })
+      });
+      token = data.token;
+      user = data.user;
+      localStorage.setItem("adminToken", token);
+      localStorage.setItem("adminUser", JSON.stringify(user));
+      enterApp();
+    }
+    async function logout() {
+      try { await request("/auth/logout", { method: "POST" }); } catch (_) {}
+      localStorage.removeItem("adminToken");
+      localStorage.removeItem("adminUser");
+      token = ""; user = null;
+      $("appView").classList.add("hidden");
+      $("loginView").classList.remove("hidden");
+    }
+    function enterApp() {
+      $("loginView").classList.add("hidden");
+      $("appView").classList.remove("hidden");
+      $("userInfo").textContent = `${user.full_name} - ${roleLabel(user.role)}`;
+      $("reportStart").value = firstDay();
+      $("reportEnd").value = today();
+      $("checksStart").value = firstDay();
+      $("checksEnd").value = today();
+      configureRoleUi();
+      refreshAll();
+    }
+    function configureRoleUi() {
+      document.body.classList.toggle("supervisor-mode", !isAdmin());
+      document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("hidden", !isAdmin()));
+      const usersNav = document.querySelector('[data-view="users"]');
+      if (usersNav) usersNav.textContent = isAdmin() ? "Usuarios" : "Mi personal";
+      if (!isAdmin() && currentView === "assignments") show("dashboard");
+    }
+    async function loadDashboard() {
+      const data = await request(`/admin/dashboard?date=${today()}`);
+      $("totalStaff").textContent = data.total_staff;
+      $("totalSupervisors").textContent = data.total_supervisors;
+      $("totalStores").textContent = data.total_stores;
+      $("activeStores").textContent = data.active_stores;
+      $("inactiveStores").textContent = data.inactive_stores;
+      $("withIngreso").textContent = data.with_ingreso;
+      $("completed").textContent = data.completed;
+      $("pendingStaff").textContent = data.pending_staff;
+      $("incidents").textContent = data.incidents;
+      $("manualReview").textContent = data.manual_review;
+      $("offlineSynced").textContent = data.offline_synced;
+      $("workedTotal").textContent = data.worked_total || "-";
+      $("mealTotal").textContent = data.meal_total || "-";
+      $("workedAverage").textContent = data.worked_average || "-";
+      $("mealAverage").textContent = data.meal_average || "-";
+      renderPhaseChart(data.by_phase || {});
+      renderSupervisorSummary(data.by_supervisor || []);
+      renderStoreSummary(data.by_store || []);
+      renderChainSummary(data.stores_by_chain || []);
+    }
+    async function loadUsers() {
+      const data = await request("/admin/users");
+      users = data.items || [];
+      renderUserSelectors();
+      renderUsers();
+      renderAssignments();
+    }
+    async function loadStores() {
+      const data = await request("/admin/stores");
+      stores = data.items || [];
+      renderStores();
+    }
+    function renderUserSelectors() {
+      const supervisors = users.filter(u => u.role === "supervisor" && u.status === "active");
+      const staff = users.filter(u => u.role === "staff");
+      const supervisorOptions = ['<option value="">Sin supervisor</option>'].concat(supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`)).join("");
+      $("userSupervisor").innerHTML = supervisorOptions;
+      $("assignSupervisor").innerHTML = supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`).join("");
+      $("reportSupervisor").innerHTML = isAdmin()
+        ? ['<option value="">Todos</option>'].concat(supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`)).join("")
+        : '<option value="">Mi equipo</option>';
+      $("checksSupervisor").innerHTML = $("reportSupervisor").innerHTML;
+      $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
+    }
+    function renderUsers() {
+      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>Rol</th><th>Supervisor</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
+        <tr>
+          <td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.email || u.employee_number || "")}</div></td>
+          <td>${roleLabel(u.role)}</td>
+          <td>${escapeHtml(u.supervisor_name || "-")}</td>
+          <td>${statusBadge(u.status)}</td>
+          <td class="actions">
+            <button class="btn secondary" onclick="editUser(${u.id})">Editar</button>
+            <button class="btn secondary" onclick="resetPassword(${u.id})">Contraseña</button>
+            <button class="btn danger" onclick="deleteUser(${u.id})">Eliminar</button>
+          </td>
+        </tr>`).join("")}</tbody></table>`;
+    }
+    function renderAssignments() {
+      const rows = users.filter(u => u.role === "staff").map(u => `<tr><td>${escapeHtml(u.full_name)}</td><td>${escapeHtml(u.supervisor_name || "Sin supervisor")}</td><td>${statusBadge(u.status)}</td></tr>`).join("");
+      $("assignmentTable").innerHTML = `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    function renderStores() {
+      $("storesTable").innerHTML = `<table><thead><tr><th>Cadena</th><th>Tienda</th><th>Coordenadas</th><th>Radio</th><th>Estado</th><th></th></tr></thead><tbody>${stores.map(s => `
+        <tr>
+          <td>${escapeHtml(s.chain || "-")}</td>
+          <td>${escapeHtml(s.name)}<div class="small">${escapeHtml(s.address || "")}</div></td>
+          <td>${s.latitude}, ${s.longitude}</td>
+          <td>${s.allowed_radius_meters} m</td>
+          <td>${statusBadge(s.status)}</td>
+          <td class="actions">
+            <button class="btn secondary" onclick="editStore(${s.id})">Editar</button>
+            <button class="btn danger" onclick="deleteStore(${s.id})">Eliminar</button>
+          </td>
+        </tr>`).join("")}</tbody></table>`;
+    }
+    window.editUser = id => {
+      const u = users.find(x => Number(x.id) === Number(id));
+      if (!u) return;
+      $("userFormTitle").textContent = "Modificar usuario";
+      $("userId").value = u.id;
+      $("userFullName").value = u.full_name || "";
+      $("userEmail").value = u.email || "";
+      $("userPhone").value = u.phone || "";
+      $("userEmployee").value = u.employee_number || "";
+      $("userRole").value = u.role;
+      $("userSupervisor").value = u.supervisor_id || "";
+      $("userStatus").value = u.status;
+      $("userPassword").value = "";
+    };
+    window.resetPassword = async id => {
+      const password = prompt("Nueva contraseña. Vacío genera una temporal:");
+      const data = await request(`/admin/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password: password || "" }) });
+      alert(`Contraseña actualizada: ${data.temporary_password || password}`);
+    };
+    window.deleteUser = async id => {
+      if (!confirm("¿Eliminar/desactivar usuario?")) return;
+      await request(`/admin/users/${id}`, { method: "DELETE" });
+      await loadUsers();
+    };
+    async function saveUser() {
+      const id = $("userId").value;
+      const body = {
+        full_name: $("userFullName").value, email: $("userEmail").value || null, phone: $("userPhone").value || null,
+        employee_number: $("userEmployee").value || null, role: $("userRole").value, supervisor_id: $("userSupervisor").value || null,
+        password: $("userPassword").value, status: $("userStatus").value
+      };
+      if (id) {
+        await request(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+        if (body.password) await request(`/admin/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password: body.password }) });
+      } else {
+        const data = await request("/admin/users", { method: "POST", body: JSON.stringify(body) });
+        if (data.temporary_password) alert(`Usuario creado. Contraseña: ${data.temporary_password}`);
+      }
+      resetUserForm();
+      await loadUsers();
+    }
+    function resetUserForm() {
+      $("userFormTitle").textContent = "Agregar usuario";
+      ["userId","userFullName","userEmail","userPhone","userEmployee","userPassword"].forEach(id => $(id).value = "");
+      $("userRole").value = "staff"; $("userSupervisor").value = ""; $("userStatus").value = "active";
+    }
+    async function assignPromoters() {
+      const supervisorId = $("assignSupervisor").value;
+      const staffIds = Array.from($("assignStaff").selectedOptions).map(o => Number(o.value));
+      if (!supervisorId || !staffIds.length) return alert("Selecciona supervisor y promotores.");
+      await request(`/admin/supervisors/${supervisorId}/assign-promoters`, { method: "POST", body: JSON.stringify({ staff_ids: staffIds }) });
+      await loadUsers();
+      alert("Asignación guardada.");
+    }
+    window.editStore = id => {
+      const s = stores.find(x => Number(x.id) === Number(id));
+      if (!s) return;
+      $("storeFormTitle").textContent = "Modificar tienda";
+      $("storeId").value = s.id; $("storeChain").value = s.chain || ""; $("storeName").value = s.name || ""; $("storeAddress").value = s.address || "";
+      $("storeLat").value = s.latitude; $("storeLng").value = s.longitude; $("storeRadius").value = s.allowed_radius_meters || 50; $("storeStatus").value = s.status;
+    };
+    window.deleteStore = async id => {
+      if (!confirm("¿Eliminar/desactivar tienda?")) return;
+      await request(`/admin/stores/${id}`, { method: "DELETE" });
+      await loadStores();
+    };
+    async function saveStore() {
+      const id = $("storeId").value;
+      const body = {
+        chain: $("storeChain").value || null, name: $("storeName").value, address: $("storeAddress").value || null, latitude: Number($("storeLat").value),
+        longitude: Number($("storeLng").value), allowed_radius_meters: Number($("storeRadius").value || 50), status: $("storeStatus").value
+      };
+      await request(id ? `/admin/stores/${id}` : "/admin/stores", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
+      resetStoreForm(); await loadStores();
+    }
+    function resetStoreForm() {
+      $("storeFormTitle").textContent = "Agregar tienda";
+      ["storeId","storeChain","storeName","storeAddress","storeLat","storeLng"].forEach(id => $(id).value = "");
+      $("storeRadius").value = "50"; $("storeStatus").value = "active";
+    }
+    async function importStores() {
+      const data = await request("/admin/stores/import-csv", { method: "POST", body: JSON.stringify({ csv: $("storesCsv").value }) });
+      const detail = data.errors && data.errors.length ? `\n\nPrimeros errores:\n${data.errors.join("\n")}` : "";
+      alert(`Carga terminada. Creadas: ${data.created}. Actualizadas: ${data.updated}. Omitidas: ${data.skipped || 0}.${detail}`);
+      await loadStores();
+    }
+    function phaseLabel(phase) {
+      return ({ ingreso: "Ingreso", salida_comer: "Salida a comer", entrada_comer: "Entrada de comer", salida: "Salida" })[phase] || phase;
+    }
+    function sourceLabel(source) {
+      return source === "offline_sync" ? "Sincronizada offline" : "En linea";
+    }
+    function statusLabel(status) {
+      return ({ valid: "Valida", synced: "Sincronizada", blocked_out_of_range: "Fuera de rango", manual_review: "Revision manual", rejected: "Rechazada" })[status] || status;
+    }
+    const reportColumnOptions = [
+      ["fecha", "Fecha"],
+      ["promotor", "Promotor"],
+      ["supervisor", "Supervisor"],
+      ["ingreso", "Ingreso"],
+      ["ingreso_cadena", "Cadena ingreso"],
+      ["ingreso_tienda", "Tienda ingreso"],
+      ["ingreso_distancia_m", "Distancia ingreso"],
+      ["ingreso_estado", "Estado ingreso"],
+      ["ingreso_foto_url", "Foto ingreso"],
+      ["salida_comer", "Salida a comer"],
+      ["salida_comer_cadena", "Cadena salida a comer"],
+      ["salida_comer_tienda", "Tienda salida a comer"],
+      ["salida_comer_distancia_m", "Distancia salida a comer"],
+      ["salida_comer_estado", "Estado salida a comer"],
+      ["salida_comer_foto_url", "Foto salida a comer"],
+      ["entrada_comer", "Entrada de comer"],
+      ["entrada_comer_cadena", "Cadena entrada de comer"],
+      ["entrada_comer_tienda", "Tienda entrada de comer"],
+      ["entrada_comer_distancia_m", "Distancia entrada de comer"],
+      ["entrada_comer_estado", "Estado entrada de comer"],
+      ["entrada_comer_foto_url", "Foto entrada de comer"],
+      ["salida", "Salida"],
+      ["salida_cadena", "Cadena salida"],
+      ["salida_tienda", "Tienda salida"],
+      ["salida_distancia_m", "Distancia salida"],
+      ["salida_estado", "Estado salida"],
+      ["salida_foto_url", "Foto salida"],
+      ["tiempo_laborado", "Tiempo laborado"],
+      ["tiempo_comida", "Tiempo comida"]
+    ];
+    function renderReportColumns() {
+      $("reportColumns").innerHTML = reportColumnOptions.map(([key, label]) => `
+        <label style="display:flex;gap:8px;align-items:center;margin:0;color:var(--text);font-weight:400">
+          <input type="checkbox" class="report-column" value="${key}" checked style="width:auto"> ${label}
+        </label>`).join("");
+    }
+    function selectedReportColumns() {
+      return Array.from(document.querySelectorAll(".report-column:checked")).map(input => input.value);
+    }
+    async function loadChecksView() {
+      const qs = new URLSearchParams({ start: $("checksStart").value, end: $("checksEnd").value });
+      if (isAdmin() && $("checksSupervisor").value) qs.set("supervisor_id", $("checksSupervisor").value);
+      const data = await request(`/admin/checks?${qs}`);
+      const rows = data.items || [];
+      const photo = (item, key) => item[key] ? `<button class="btn secondary" style="padding:5px 8px" onclick="openProtectedPhoto('${escapeHtml(item[key])}').catch(e => alert(e.message))">Foto</button>` : "";
+      $("checksTable").innerHTML = rows.length ? `<table><thead><tr><th>Fecha</th><th>Promotor</th><th>Ingreso</th><th>Salida a comer</th><th>Entrada de comer</th><th>Salida</th><th>Laborado</th><th>Comida</th></tr></thead><tbody>${rows.map(item => `
+        <tr>
+          <td>${escapeHtml(item.fecha)}</td>
+          <td>${escapeHtml(item.promotor)}<div class="small">${escapeHtml(item.supervisor || "")}</div></td>
+          <td>${escapeHtml(item.ingreso || "")}<div class="small">${escapeHtml([item.ingreso_cadena, item.ingreso_tienda].filter(Boolean).join(" - "))} ${photo(item, "ingreso_foto_url")}</div></td>
+          <td>${escapeHtml(item.salida_comer || "")}<div class="small">${escapeHtml([item.salida_comer_cadena, item.salida_comer_tienda].filter(Boolean).join(" - "))} ${photo(item, "salida_comer_foto_url")}</div></td>
+          <td>${escapeHtml(item.entrada_comer || "")}<div class="small">${escapeHtml([item.entrada_comer_cadena, item.entrada_comer_tienda].filter(Boolean).join(" - "))} ${photo(item, "entrada_comer_foto_url")}</div></td>
+          <td>${escapeHtml(item.salida || "")}<div class="small">${escapeHtml([item.salida_cadena, item.salida_tienda].filter(Boolean).join(" - "))} ${photo(item, "salida_foto_url")}</div></td>
+          <td>${escapeHtml(item.tiempo_laborado || "")}</td>
+          <td>${escapeHtml(item.tiempo_comida || "")}</td>
+        </tr>`).join("")}</tbody></table>` : "Sin checadas en el periodo.";
+    }
+    async function downloadChecks() {
+      const qs = new URLSearchParams({ start: $("reportStart").value, end: $("reportEnd").value });
+      if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
+      const columns = selectedReportColumns();
+      if (columns.length) qs.set("columns", columns.join(","));
+      await downloadCsv(`/admin/reports/checks.csv?${qs}`, "reporte_checadas.csv");
+    }
+    async function downloadAssignments() {
+      const qs = new URLSearchParams();
+      if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
+      await downloadCsv(`/admin/reports/assignments.csv?${qs}`, "promotores_por_supervisor.csv");
+    }
+    function show(viewId) {
+      currentView = viewId;
+      document.querySelectorAll(".view").forEach(v => v.classList.toggle("hidden", v.id !== viewId));
+      document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.view === viewId));
+      const labels = {
+        dashboard: ["Dashboard", "Resumen diario del sistema."],
+        users: ["Usuarios", "Agregar, modificar, contraseñas y eliminar usuarios."],
+        assignments: ["Asignaciones", "Supervisores con sus promotores."],
+        stores: ["Tiendas", "Alta, modificación, eliminación y carga masiva."],
+        checks: ["Checadas", "Consulta en pantalla con foto, hora, tienda y tiempos."],
+        reports: ["Reportes", "Descargas por periodo y por supervisores."]
+      };
+      $("title").textContent = labels[viewId][0];
+      $("subtitle").textContent = labels[viewId][1];
+    }
+    async function refreshAll() {
+      await Promise.all([loadDashboard(), loadUsers(), loadStores()]);
+    }
+    $("loginBtn").onclick = () => login().catch(e => alert(e.message));
+    $("logoutBtn").onclick = logout;
+    $("refreshBtn").onclick = () => refreshAll().catch(e => alert(e.message));
+    $("saveUserBtn").onclick = () => saveUser().catch(e => alert(e.message));
+    $("resetUserFormBtn").onclick = resetUserForm;
+    $("assignBtn").onclick = () => assignPromoters().catch(e => alert(e.message));
+    $("saveStoreBtn").onclick = () => saveStore().catch(e => alert(e.message));
+    $("resetStoreFormBtn").onclick = resetStoreForm;
+    $("importStoresBtn").onclick = () => importStores().catch(e => alert(e.message));
+    $("loadChecksBtn").onclick = () => loadChecksView().catch(e => alert(e.message));
+    $("downloadChecksBtn").onclick = () => downloadChecks().catch(e => alert(e.message));
+    $("downloadAssignmentsBtn").onclick = () => downloadAssignments().catch(e => alert(e.message));
+    document.querySelectorAll("nav button").forEach(btn => btn.onclick = () => show(btn.dataset.view));
+    renderReportColumns();
+    if (token && user) enterApp();
+  </script>
+</body>
+</html>
