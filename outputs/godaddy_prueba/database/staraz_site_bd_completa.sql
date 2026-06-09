@@ -91,6 +91,28 @@ CREATE TABLE IF NOT EXISTS check_attempts (
   INDEX idx_attempt_reason (reason)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS incident_types (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL UNIQUE,
+  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS staff_incidents (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  incident_type_id BIGINT UNSIGNED NOT NULL,
+  incident_date DATE NOT NULL,
+  notes TEXT NULL,
+  created_by BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_staff_incident_day (user_id, incident_date),
+  INDEX idx_staff_incident_date (incident_date),
+  INDEX idx_staff_incident_type (incident_type_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- La contrasena inicial de todos es: Cambiar123!
@@ -146,3 +168,10 @@ ON DUPLICATE KEY UPDATE
 
 -- Las tiendas reales se cargan desde el panel con CSV:
 -- cadena,nombre,direccion,latitud,longitud,radio
+
+INSERT INTO incident_types (name, status)
+VALUES
+  ('Vacaciones', 'active'),
+  ('Falta sin goce de sueldo', 'active'),
+  ('Falta justificada', 'active')
+ON DUPLICATE KEY UPDATE status = VALUES(status);

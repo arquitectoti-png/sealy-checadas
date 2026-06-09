@@ -67,6 +67,37 @@ function ensure_runtime_schema(PDO $pdo): void
         $pdo->exec("ALTER TABLE stores ADD COLUMN chain VARCHAR(100) NULL AFTER id");
         $pdo->exec("CREATE INDEX idx_stores_chain_status ON stores (chain, status)");
     }
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS incident_types (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(120) NOT NULL UNIQUE,
+          status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS staff_incidents (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          user_id BIGINT UNSIGNED NOT NULL,
+          incident_type_id BIGINT UNSIGNED NOT NULL,
+          incident_date DATE NOT NULL,
+          notes TEXT NULL,
+          created_by BIGINT UNSIGNED NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_staff_incident_day (user_id, incident_date),
+          INDEX idx_staff_incident_date (incident_date),
+          INDEX idx_staff_incident_type (incident_type_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+    $count = (int)$pdo->query("SELECT COUNT(*) total FROM incident_types")->fetch()['total'];
+    if ($count === 0) {
+        $stmt = $pdo->prepare("INSERT INTO incident_types (name, status) VALUES (?, 'active')");
+        foreach (['Vacaciones', 'Falta sin goce de sueldo', 'Falta justificada'] as $name) {
+            $stmt->execute([$name]);
+        }
+    }
 }
 
 function response_json(array $data, int $status = 200): void
@@ -303,6 +334,35 @@ function normalize_phase(string $phase): string
     return $phase;
 }
 
+function phase_order(): array
+{
+    return ['ingreso', 'salida_comer', 'entrada_comer', 'salida'];
+}
+
+function validate_phase_sequence(PDO $pdo, int $userId, string $phase, string $checkDate, int $storeId, float $lat, float $lng, string $deviceId): void
+{
+    $order = phase_order();
+    $index = array_search($phase, $order, true);
+    if ($index === false) {
+        response_json(['error' => 'Fase invalida'], 400);
+    }
+
+    $stmt = $pdo->prepare("SELECT phase FROM check_records WHERE user_id = ? AND check_date = ?");
+    $stmt->execute([$userId, $checkDate]);
+    $checked = array_column($stmt->fetchAll(), 'phase');
+    for ($i = 0; $i < $index; $i++) {
+        if (!in_array($order[$i], $checked, true)) {
+            $attempt = $pdo->prepare(
+                "INSERT INTO check_attempts
+                 (user_id, store_id, phase, attempted_at, latitude, longitude, distance_meters, reason, device_id)
+                 VALUES (?, ?, ?, NOW(), ?, ?, NULL, 'invalid_order', ?)"
+            );
+            $attempt->execute([$userId, $storeId, $phase, $lat, $lng, $deviceId]);
+            throw new RuntimeException('No puedes registrar ' . phase_label($phase) . ' sin registrar primero ' . phase_label($order[$i]));
+        }
+    }
+}
+
 function minutes_between(?string $start, ?string $end): ?int
 {
     if (!$start || !$end) {
@@ -470,6 +530,14 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
     }
 
     $store = get_store($pdo, $storeId);
+    try {
+        validate_phase_sequence($pdo, (int)$user['id'], $phase, $checkDate, $storeId, $lat, $lng, $deviceId);
+    } catch (RuntimeException $e) {
+        if ($source === 'offline_sync') {
+            throw $e;
+        }
+        response_json(['error' => $e->getMessage()], 409);
+    }
 
     if ($gpsIsMocked) {
         $stmt = $pdo->prepare(
@@ -623,6 +691,23 @@ try {
             $stmt->execute([(int)$user['id'], $hash]);
         }
         response_json(['ok' => true]);
+    }
+
+    if ($method === 'POST' && $path === '/me/change-password') {
+        $user = auth_user($pdo);
+        require_role($user, ['staff', 'admin', 'supervisor']);
+        $data = body_json();
+        $current = (string)($data['current_password'] ?? '');
+        $new = (string)($data['new_password'] ?? '');
+        if (!verify_user_password($current, $user['password_hash'])) {
+            response_json(['error' => 'La contraseña actual no es correcta'], 400);
+        }
+        if (strlen($new) < 8) {
+            response_json(['error' => 'La nueva contraseña debe tener al menos 8 caracteres'], 400);
+        }
+        $stmt = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+        $stmt->execute([password_hash($new, PASSWORD_DEFAULT), (int)$user['id']]);
+        response_json(['ok' => true, 'message' => 'Contraseña actualizada']);
     }
 
     if ($method === 'GET' && preg_match('#^/photos/(checks/[0-9]{8}/[a-f0-9]{24}\.jpg)$#', $path, $photoMatch)) {
@@ -958,6 +1043,20 @@ try {
             $where[] = "c.user_id = ?";
             $params[] = (int)$_GET['staff_id'];
         }
+        if (isset($_GET['chain']) && trim((string)$_GET['chain']) !== '') {
+            $where[] = "s.chain LIKE ?";
+            $params[] = '%' . trim((string)$_GET['chain']) . '%';
+        }
+        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
+            $term = '%' . trim((string)$_GET['promoter']) . '%';
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
+            array_push($params, $term, $term, $term);
+        }
+        if (isset($_GET['store_query']) && trim((string)$_GET['store_query']) !== '') {
+            $term = '%' . trim((string)$_GET['store_query']) . '%';
+            $where[] = "(s.name LIKE ? OR s.address LIKE ?)";
+            array_push($params, $term, $term);
+        }
 
         $stmt = $pdo->prepare(
             "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device,
@@ -1113,6 +1212,89 @@ try {
         response_json(['ok' => true, 'created' => $created, 'updated' => $updated, 'skipped' => $skipped, 'errors' => $errors]);
     }
 
+    if ($method === 'POST' && $path === '/admin/users/import-csv') {
+        $user = auth_user($pdo);
+        require_admin($user);
+        $data = body_json();
+        $csv = trim((string)($data['csv'] ?? ''));
+        if ($csv === '') {
+            response_json(['error' => 'El CSV es obligatorio'], 400);
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $csv);
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $errors = [];
+        $defaultPassword = (string)($data['default_password'] ?? 'Cambiar123!');
+        $stmtInsert = $pdo->prepare(
+            "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, status)
+             VALUES (?, ?, ?, ?, ?, 'staff', ?, 'active')"
+        );
+        $stmtUpdate = $pdo->prepare(
+            "UPDATE users SET full_name = ?, email = ?, phone = ?, supervisor_id = ?, role = 'staff', status = 'active'
+             WHERE employee_number = ?"
+        );
+        $findSupervisor = $pdo->prepare(
+            "SELECT id FROM users
+             WHERE role = 'supervisor' AND status = 'active'
+             AND (employee_number = ? OR email = ? OR full_name = ?)
+             LIMIT 1"
+        );
+        $header = null;
+        foreach ($lines as $i => $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $cols = str_getcsv($line);
+            if ($i === 0 && preg_match('/nombre|promotor|empleado|email|supervisor/i', implode(',', $cols))) {
+                $header = array_map(fn($value) => strtolower(trim((string)$value)), $cols);
+                continue;
+            }
+            $row = [];
+            if ($header) {
+                foreach ($header as $index => $key) {
+                    $row[$key] = $cols[$index] ?? '';
+                }
+                $name = trim((string)($row['nombre'] ?? $row['promotor'] ?? $row['full_name'] ?? $row['name'] ?? ''));
+                $email = trim((string)($row['email'] ?? $row['correo'] ?? ''));
+                $phone = trim((string)($row['telefono'] ?? $row['phone'] ?? ''));
+                $employee = trim((string)($row['numero_empleado'] ?? $row['empleado'] ?? $row['employee_number'] ?? ''));
+                $supervisorKey = trim((string)($row['supervisor'] ?? $row['supervisor_email'] ?? $row['supervisor_empleado'] ?? ''));
+                $password = trim((string)($row['password'] ?? $row['contrasena'] ?? '')) ?: $defaultPassword;
+            } else {
+                $name = trim((string)($cols[0] ?? ''));
+                $email = trim((string)($cols[1] ?? ''));
+                $employee = trim((string)($cols[2] ?? ''));
+                $phone = trim((string)($cols[3] ?? ''));
+                $supervisorKey = trim((string)($cols[4] ?? ''));
+                $password = trim((string)($cols[5] ?? '')) ?: $defaultPassword;
+            }
+            if ($name === '' || $employee === '') {
+                $skipped++;
+                if (count($errors) < 10) {
+                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre o numero de empleado';
+                }
+                continue;
+            }
+            $supervisorId = null;
+            if ($supervisorKey !== '') {
+                $findSupervisor->execute([$supervisorKey, $supervisorKey, $supervisorKey]);
+                $found = $findSupervisor->fetch();
+                $supervisorId = $found ? (int)$found['id'] : null;
+            }
+            $exists = $pdo->prepare("SELECT id FROM users WHERE employee_number = ? LIMIT 1");
+            $exists->execute([$employee]);
+            if ($exists->fetch()) {
+                $stmtUpdate->execute([$name, $email ?: null, $phone ?: null, $supervisorId, $employee]);
+                $updated++;
+            } else {
+                $stmtInsert->execute([$name, $email ?: null, $phone ?: null, $employee, password_hash($password, PASSWORD_DEFAULT), $supervisorId]);
+                $created++;
+            }
+        }
+        response_json(['ok' => true, 'created' => $created, 'updated' => $updated, 'skipped' => $skipped, 'errors' => $errors]);
+    }
+
     if ($method === 'GET' && $path === '/admin/users') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
@@ -1230,6 +1412,93 @@ try {
         response_json(['ok' => true, 'assigned' => count($staffIds)]);
     }
 
+    if ($method === 'GET' && $path === '/admin/incident-types') {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $stmt = $pdo->query("SELECT * FROM incident_types ORDER BY status ASC, name ASC");
+        response_json(['items' => $stmt->fetchAll()]);
+    }
+
+    if ($method === 'POST' && $path === '/admin/incident-types') {
+        $user = auth_user($pdo);
+        require_admin($user);
+        $data = body_json();
+        $name = trim((string)($data['name'] ?? ''));
+        if ($name === '') {
+            response_json(['error' => 'El nombre del tipo es obligatorio'], 400);
+        }
+        $stmt = $pdo->prepare("INSERT INTO incident_types (name, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
+        $stmt->execute([$name, $data['status'] ?? 'active']);
+        response_json(['ok' => true]);
+    }
+
+    if ($method === 'PATCH' && ($match = route_match('/admin/incident-types/{id}', $path))) {
+        $user = auth_user($pdo);
+        require_admin($user);
+        $data = body_json();
+        $stmt = $pdo->prepare("UPDATE incident_types SET name = ?, status = ? WHERE id = ?");
+        $stmt->execute([trim((string)($data['name'] ?? '')), $data['status'] ?? 'active', (int)$match['id']]);
+        response_json(['ok' => true]);
+    }
+
+    if ($method === 'GET' && $path === '/admin/incidents') {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $date = $_GET['date'] ?? date('Y-m-d');
+        $where = ["u.role = 'staff'", "u.status = 'active'"];
+        $params = [$date, $date];
+        if ($user['role'] === 'supervisor') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$user['id'];
+        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$_GET['supervisor_id'];
+        }
+        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
+            $term = '%' . trim((string)$_GET['promoter']) . '%';
+            $where[] = "(u.full_name LIKE ? OR u.employee_number LIKE ? OR u.email LIKE ?)";
+            array_push($params, $term, $term, $term);
+        }
+        $stmt = $pdo->prepare(
+            "SELECT u.id AS user_id, u.full_name, u.employee_number, sup.full_name AS supervisor_name,
+                    c.id AS ingreso_id, si.id AS incident_id, it.name AS incident_type, si.notes
+             FROM users u
+             LEFT JOIN users sup ON sup.id = u.supervisor_id
+             LEFT JOIN check_records c ON c.user_id = u.id AND c.check_date = ? AND c.phase = 'ingreso'
+             LEFT JOIN staff_incidents si ON si.user_id = u.id AND si.incident_date = ?
+             LEFT JOIN incident_types it ON it.id = si.incident_type_id
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY sup.full_name, u.full_name"
+        );
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        $items = array_values(array_filter($rows, fn($row) => !$row['ingreso_id']));
+        response_json(['items' => $items]);
+    }
+
+    if ($method === 'POST' && $path === '/admin/incidents') {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $data = body_json();
+        $staffId = (int)($data['user_id'] ?? 0);
+        $incidentTypeId = (int)($data['incident_type_id'] ?? 0);
+        $date = (string)($data['incident_date'] ?? date('Y-m-d'));
+        if ($user['role'] === 'supervisor') {
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND supervisor_id = ? AND role = 'staff'");
+            $stmt->execute([$staffId, (int)$user['id']]);
+            if (!$stmt->fetch()) {
+                response_json(['error' => 'Solo puedes registrar incidencias de tu personal'], 403);
+            }
+        }
+        $stmt = $pdo->prepare(
+            "INSERT INTO staff_incidents (user_id, incident_type_id, incident_date, notes, created_by)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE incident_type_id = VALUES(incident_type_id), notes = VALUES(notes), created_by = VALUES(created_by)"
+        );
+        $stmt->execute([$staffId, $incidentTypeId, $date, $data['notes'] ?? null, (int)$user['id']]);
+        response_json(['ok' => true]);
+    }
+
     if ($method === 'GET' && $path === '/admin/reports/checks.csv') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
@@ -1250,6 +1519,20 @@ try {
         if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
             $where[] = "u.supervisor_id = ?";
             $params[] = (int)$_GET['supervisor_id'];
+        }
+        if (isset($_GET['chain']) && trim((string)$_GET['chain']) !== '') {
+            $where[] = "s.chain LIKE ?";
+            $params[] = '%' . trim((string)$_GET['chain']) . '%';
+        }
+        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
+            $term = '%' . trim((string)$_GET['promoter']) . '%';
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
+            array_push($params, $term, $term, $term);
+        }
+        if (isset($_GET['store_query']) && trim((string)$_GET['store_query']) !== '') {
+            $term = '%' . trim((string)$_GET['store_query']) . '%';
+            $where[] = "(s.name LIKE ? OR s.address LIKE ?)";
+            array_push($params, $term, $term);
         }
         $stmt = $pdo->prepare(
             "SELECT c.user_id, c.check_date, u.full_name AS staff_name, sup.full_name AS supervisor_name,

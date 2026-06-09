@@ -43,6 +43,8 @@ class _AppShellState extends State<AppShell> {
   final _apiController = TextEditingController(text: defaultApiBaseUrl);
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
   final _picker = ImagePicker();
 
   SharedPreferences? _prefs;
@@ -68,6 +70,8 @@ class _AppShellState extends State<AppShell> {
     _apiController.dispose();
     _loginController.dispose();
     _passwordController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
     super.dispose();
   }
 
@@ -190,6 +194,21 @@ class _AppShellState extends State<AppShell> {
       _bootstrap = null;
       _records = [];
       _message = 'Sesion cerrada.';
+    });
+  }
+
+  Future<void> _changePassword() async {
+    await _runBusy(() async {
+      if (_newPasswordController.text.length < 8) {
+        throw ApiException('La nueva contraseña debe tener al menos 8 caracteres.', 400);
+      }
+      await _request('/me/change-password', method: 'POST', body: {
+        'current_password': _currentPasswordController.text,
+        'new_password': _newPasswordController.text,
+      });
+      _currentPasswordController.clear();
+      _newPasswordController.clear();
+      _message = 'Contraseña actualizada.';
     });
   }
 
@@ -446,6 +465,7 @@ class _AppShellState extends State<AppShell> {
                 NavigationDestination(icon: Icon(Icons.camera_alt_outlined), label: 'Checar'),
                 NavigationDestination(icon: Icon(Icons.history), label: 'Registros'),
                 NavigationDestination(icon: Icon(Icons.sync), label: 'Sync'),
+                NavigationDestination(icon: Icon(Icons.lock_outline), label: 'Clave'),
               ],
             )
           : null,
@@ -488,7 +508,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildHome() {
-    final pages = [_buildCheckTab(), _buildRecordsTab(), _buildSyncTab()];
+    final pages = [_buildCheckTab(), _buildRecordsTab(), _buildSyncTab(), _buildPasswordTab()];
     return Stack(
       children: [
         pages[_tabIndex],
@@ -578,7 +598,12 @@ class _AppShellState extends State<AppShell> {
 
   List<MapEntry<String, String>> get _availablePhaseOptions {
     final checked = _checkedPhasesToday;
-    return _phaseOptions.where((item) => !checked.contains(item.key)).toList();
+    for (final item in _phaseOptions) {
+      if (!checked.contains(item.key)) {
+        return [item];
+      }
+    }
+    return [];
   }
 
   void _syncSelectedPhaseWithToday() {
@@ -676,6 +701,41 @@ class _AppShellState extends State<AppShell> {
           (item) => _InfoCard(
             title: _phaseLabel(item.phase),
             child: Text('${item.capturedAtDevice}\nDistancia cliente: ${item.distanceMetersClient.toStringAsFixed(1)} m'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _InfoCard(
+          title: 'Cambiar contraseña',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _currentPasswordController,
+                decoration: const InputDecoration(labelText: 'Contraseña actual'),
+                obscureText: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _newPasswordController,
+                decoration: const InputDecoration(labelText: 'Nueva contraseña'),
+                obscureText: true,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _busy ? null : _changePassword,
+                icon: const Icon(Icons.lock_reset),
+                label: const Text('Actualizar contraseña'),
+              ),
+              const SizedBox(height: 8),
+              Text(_message),
+            ],
           ),
         ),
       ],

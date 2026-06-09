@@ -106,6 +106,7 @@
         <button class="admin-only" data-view="assignments">Asignaciones</button>
         <button data-view="stores">Tiendas</button>
         <button data-view="checks">Checadas</button>
+        <button data-view="incidentsView">Incidencias</button>
         <button data-view="reports">Reportes</button>
       </nav>
     </aside>
@@ -176,6 +177,13 @@
             </div>
           </div>
         </div>
+        <div class="card admin-only">
+          <h2>Carga masiva de promotores</h2>
+          <p class="small">Formato CSV: nombre,email,numero_empleado,telefono,supervisor,contraseña. El supervisor puede ser nombre, email o número de empleado.</p>
+          <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,5512345678,Supervisor 1,Cambiar123!</textarea>
+          <label>Contraseña default<input id="usersDefaultPassword" value="Cambiar123!"></label>
+          <button id="importUsersBtn" class="btn">Cargar promotores</button>
+        </div>
       </section>
 
       <section id="assignments" class="view hidden admin-only">
@@ -231,11 +239,36 @@
             <label>Inicio<input id="checksStart" type="date"></label>
             <label>Fin<input id="checksEnd" type="date"></label>
             <label>Supervisor<select id="checksSupervisor"></select></label>
+            <label>Cadena<input id="checksChain" placeholder="Coppel, Suburbia"></label>
+            <label>Promotor<input id="checksPromoter" placeholder="Nombre, correo o empleado"></label>
+            <label>Tienda / dirección<input id="checksStoreQuery" placeholder="Nombre o dirección"></label>
           </div>
           <button id="loadChecksBtn" class="btn">Consultar checadas</button>
         </div>
         <div class="card">
           <div id="checksTable" class="small">Consulta un periodo para ver checadas.</div>
+        </div>
+      </section>
+
+      <section id="incidentsView" class="view hidden">
+        <div class="grid two">
+          <div class="card">
+            <h2>Personal sin ingreso</h2>
+            <div class="grid three">
+              <label>Fecha<input id="incidentsDate" type="date"></label>
+              <label>Supervisor<select id="incidentsSupervisor"></select></label>
+              <label>Buscar promotor<input id="incidentsPromoter" placeholder="Nombre o empleado"></label>
+            </div>
+            <button id="loadIncidentsBtn" class="btn">Consultar incidencias</button>
+            <div id="incidentsTable" class="small" style="margin-top:12px">Consulta una fecha.</div>
+          </div>
+          <div class="card admin-only">
+            <h2>Tipos de incidencia</h2>
+            <label>Nombre<input id="incidentTypeName" placeholder="Vacaciones"></label>
+            <label>Estado<select id="incidentTypeStatus"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
+            <button id="saveIncidentTypeBtn" class="btn">Agregar tipo</button>
+            <div id="incidentTypesTable" class="small" style="margin-top:12px">Cargando...</div>
+          </div>
         </div>
       </section>
 
@@ -246,6 +279,9 @@
             <label>Inicio<input id="reportStart" type="date"></label>
             <label>Fin<input id="reportEnd" type="date"></label>
             <label>Supervisor<select id="reportSupervisor"></select></label>
+            <label>Cadena<input id="reportChain" placeholder="Coppel, Suburbia"></label>
+            <label>Promotor<input id="reportPromoter" placeholder="Nombre, correo o empleado"></label>
+            <label>Tienda / dirección<input id="reportStoreQuery" placeholder="Nombre o dirección"></label>
           </div>
           <div class="actions">
             <button id="downloadChecksBtn" class="btn">Bajar checadas por periodo</button>
@@ -265,6 +301,7 @@
     let user = JSON.parse(localStorage.getItem("adminUser") || "null");
     let users = [];
     let stores = [];
+    let incidentTypes = [];
     let currentView = "dashboard";
     const $ = id => document.getElementById(id);
 
@@ -394,6 +431,7 @@
       $("reportEnd").value = today();
       $("checksStart").value = firstDay();
       $("checksEnd").value = today();
+      $("incidentsDate").value = today();
       configureRoleUi();
       refreshAll();
     }
@@ -448,6 +486,7 @@
         ? ['<option value="">Todos</option>'].concat(supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`)).join("")
         : '<option value="">Mi equipo</option>';
       $("checksSupervisor").innerHTML = $("reportSupervisor").innerHTML;
+      $("incidentsSupervisor").innerHTML = $("reportSupervisor").innerHTML;
       $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
     }
     function renderUsers() {
@@ -568,6 +607,15 @@
       alert(`Carga terminada. Creadas: ${data.created}. Actualizadas: ${data.updated}. Omitidas: ${data.skipped || 0}.${detail}`);
       await loadStores();
     }
+    async function importUsers() {
+      const data = await request("/admin/users/import-csv", {
+        method: "POST",
+        body: JSON.stringify({ csv: $("usersCsv").value, default_password: $("usersDefaultPassword").value || "Cambiar123!" })
+      });
+      const detail = data.errors && data.errors.length ? `\n\nPrimeros errores:\n${data.errors.join("\n")}` : "";
+      alert(`Carga de promotores terminada. Creados: ${data.created}. Actualizados: ${data.updated}. Omitidos: ${data.skipped || 0}.${detail}`);
+      await loadUsers();
+    }
     function phaseLabel(phase) {
       return ({ ingreso: "Ingreso", salida_comer: "Salida a comer", entrada_comer: "Entrada de comer", salida: "Salida" })[phase] || phase;
     }
@@ -620,6 +668,9 @@
     async function loadChecksView() {
       const qs = new URLSearchParams({ start: $("checksStart").value, end: $("checksEnd").value });
       if (isAdmin() && $("checksSupervisor").value) qs.set("supervisor_id", $("checksSupervisor").value);
+      if ($("checksChain").value.trim()) qs.set("chain", $("checksChain").value.trim());
+      if ($("checksPromoter").value.trim()) qs.set("promoter", $("checksPromoter").value.trim());
+      if ($("checksStoreQuery").value.trim()) qs.set("store_query", $("checksStoreQuery").value.trim());
       const data = await request(`/admin/checks?${qs}`);
       const rows = data.items || [];
       const photo = (item, key) => item[key] ? `<button class="btn secondary" style="padding:5px 8px" onclick="openProtectedPhoto('${escapeHtml(item[key])}').catch(e => alert(e.message))">Foto</button>` : "";
@@ -638,10 +689,78 @@
     async function downloadChecks() {
       const qs = new URLSearchParams({ start: $("reportStart").value, end: $("reportEnd").value });
       if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
+      if ($("reportChain").value.trim()) qs.set("chain", $("reportChain").value.trim());
+      if ($("reportPromoter").value.trim()) qs.set("promoter", $("reportPromoter").value.trim());
+      if ($("reportStoreQuery").value.trim()) qs.set("store_query", $("reportStoreQuery").value.trim());
       const columns = selectedReportColumns();
       if (columns.length) qs.set("columns", columns.join(","));
       await downloadCsv(`/admin/reports/checks.csv?${qs}`, "reporte_checadas.csv");
     }
+    async function loadIncidentTypes() {
+      const data = await request("/admin/incident-types");
+      incidentTypes = data.items || [];
+      renderIncidentTypes();
+    }
+    function renderIncidentTypes() {
+      if (!$("incidentTypesTable")) return;
+      $("incidentTypesTable").innerHTML = incidentTypes.length ? `<table><thead><tr><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody>${incidentTypes.map(t => `
+        <tr>
+          <td>${escapeHtml(t.name)}</td>
+          <td>${statusBadge(t.status)}</td>
+          <td class="actions"><button class="btn secondary" onclick="toggleIncidentType(${t.id})">${t.status === "active" ? "Desactivar" : "Activar"}</button></td>
+        </tr>`).join("")}</tbody></table>` : "Sin tipos registrados.";
+    }
+    async function saveIncidentType() {
+      await request("/admin/incident-types", {
+        method: "POST",
+        body: JSON.stringify({ name: $("incidentTypeName").value, status: $("incidentTypeStatus").value })
+      });
+      $("incidentTypeName").value = "";
+      await loadIncidentTypes();
+    }
+    window.toggleIncidentType = async id => {
+      const item = incidentTypes.find(t => Number(t.id) === Number(id));
+      if (!item) return;
+      await request(`/admin/incident-types/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: item.name, status: item.status === "active" ? "inactive" : "active" })
+      });
+      await loadIncidentTypes();
+    };
+    async function loadIncidents() {
+      const qs = new URLSearchParams({ date: $("incidentsDate").value || today() });
+      if (isAdmin() && $("incidentsSupervisor").value) qs.set("supervisor_id", $("incidentsSupervisor").value);
+      if ($("incidentsPromoter").value.trim()) qs.set("promoter", $("incidentsPromoter").value.trim());
+      const data = await request(`/admin/incidents?${qs}`);
+      const rows = data.items || [];
+      const activeTypes = incidentTypes.filter(t => t.status === "active");
+      $("incidentsTable").innerHTML = rows.length ? `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Incidencia</th><th>Notas</th><th></th></tr></thead><tbody>${rows.map(item => `
+        <tr>
+          <td>${escapeHtml(item.full_name)}<div class="small">${escapeHtml(item.employee_number || "")}</div></td>
+          <td>${escapeHtml(item.supervisor_name || "-")}</td>
+          <td>
+            ${item.incident_type ? `<div class="small">Actual: ${escapeHtml(item.incident_type)}</div>` : ""}
+            <select id="incidentType_${item.user_id}">${activeTypes.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")}</select>
+          </td>
+          <td><input id="incidentNotes_${item.user_id}" value="${escapeHtml(item.notes || "")}" placeholder="Notas"></td>
+          <td><button class="btn" onclick="saveIncident(${item.user_id})">Guardar</button></td>
+        </tr>`).join("")}</tbody></table>` : "Todos los promotores filtrados tienen ingreso registrado o no hay personal.";
+    }
+    window.saveIncident = async userId => {
+      const typeId = $(`incidentType_${userId}`).value;
+      if (!typeId) return alert("Selecciona un tipo de incidencia.");
+      await request("/admin/incidents", {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: userId,
+          incident_type_id: typeId,
+          incident_date: $("incidentsDate").value || today(),
+          notes: $(`incidentNotes_${userId}`).value || null
+        })
+      });
+      await loadIncidents();
+      alert("Incidencia guardada.");
+    };
     async function downloadAssignments() {
       const qs = new URLSearchParams();
       if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
@@ -657,13 +776,14 @@
         assignments: ["Asignaciones", "Supervisores con sus promotores."],
         stores: ["Tiendas", "Alta, modificación, eliminación y carga masiva."],
         checks: ["Checadas", "Consulta en pantalla con foto, hora, tienda y tiempos."],
+        incidentsView: ["Incidencias", "Personal sin ingreso y tipos de incidencia."],
         reports: ["Reportes", "Descargas por periodo y por supervisores."]
       };
       $("title").textContent = labels[viewId][0];
       $("subtitle").textContent = labels[viewId][1];
     }
     async function refreshAll() {
-      await Promise.all([loadDashboard(), loadUsers(), loadStores()]);
+      await Promise.all([loadDashboard(), loadUsers(), loadStores(), loadIncidentTypes()]);
     }
     $("loginBtn").onclick = () => login().catch(e => alert(e.message));
     $("logoutBtn").onclick = logout;
@@ -674,7 +794,10 @@
     $("saveStoreBtn").onclick = () => saveStore().catch(e => alert(e.message));
     $("resetStoreFormBtn").onclick = resetStoreForm;
     $("importStoresBtn").onclick = () => importStores().catch(e => alert(e.message));
+    $("importUsersBtn").onclick = () => importUsers().catch(e => alert(e.message));
     $("loadChecksBtn").onclick = () => loadChecksView().catch(e => alert(e.message));
+    $("loadIncidentsBtn").onclick = () => loadIncidents().catch(e => alert(e.message));
+    $("saveIncidentTypeBtn").onclick = () => saveIncidentType().catch(e => alert(e.message));
     $("downloadChecksBtn").onclick = () => downloadChecks().catch(e => alert(e.message));
     $("downloadAssignmentsBtn").onclick = () => downloadAssignments().catch(e => alert(e.message));
     document.querySelectorAll("nav button").forEach(btn => btn.onclick = () => show(btn.dataset.view));
