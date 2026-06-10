@@ -621,7 +621,15 @@
       await loadUsers();
     }
     function phaseLabel(phase) {
-      return ({ ingreso: "Ingreso", salida_comer: "Salida a comer", entrada_comer: "Entrada de comer", salida: "Salida" })[phase] || phase;
+      return ({
+        ingreso: "Ingreso",
+        salida_comer: "Salida a comer",
+        entrada_comer: "Entrada de comer",
+        salida: "Salida",
+        verificacion_ubicacion_1: "Verificacion ubicacion 1",
+        verificacion_ubicacion_2: "Verificacion ubicacion 2",
+        verificacion_ubicacion_3: "Verificacion ubicacion 3"
+      })[phase] || phase;
     }
     function sourceLabel(source) {
       return source === "offline_sync" ? "Sincronizada offline" : "En linea";
@@ -657,6 +665,24 @@
       ["salida_distancia_m", "Distancia salida"],
       ["salida_estado", "Estado salida"],
       ["salida_foto_url", "Foto salida"],
+      ["verificacion_ubicacion_1", "Verificacion ubicacion 1"],
+      ["verificacion_ubicacion_1_cadena", "Cadena verificacion 1"],
+      ["verificacion_ubicacion_1_tienda", "Tienda verificacion 1"],
+      ["verificacion_ubicacion_1_distancia_m", "Distancia verificacion 1"],
+      ["verificacion_ubicacion_1_estado", "Estado verificacion 1"],
+      ["verificacion_ubicacion_1_foto_url", "Foto verificacion 1"],
+      ["verificacion_ubicacion_2", "Verificacion ubicacion 2"],
+      ["verificacion_ubicacion_2_cadena", "Cadena verificacion 2"],
+      ["verificacion_ubicacion_2_tienda", "Tienda verificacion 2"],
+      ["verificacion_ubicacion_2_distancia_m", "Distancia verificacion 2"],
+      ["verificacion_ubicacion_2_estado", "Estado verificacion 2"],
+      ["verificacion_ubicacion_2_foto_url", "Foto verificacion 2"],
+      ["verificacion_ubicacion_3", "Verificacion ubicacion 3"],
+      ["verificacion_ubicacion_3_cadena", "Cadena verificacion 3"],
+      ["verificacion_ubicacion_3_tienda", "Tienda verificacion 3"],
+      ["verificacion_ubicacion_3_distancia_m", "Distancia verificacion 3"],
+      ["verificacion_ubicacion_3_estado", "Estado verificacion 3"],
+      ["verificacion_ubicacion_3_foto_url", "Foto verificacion 3"],
       ["tiempo_laborado", "Tiempo laborado"],
       ["tiempo_comida", "Tiempo comida"]
     ];
@@ -678,14 +704,22 @@
       const data = await request(`/admin/checks?${qs}`);
       const rows = data.items || [];
       const photo = (item, key) => item[key] ? `<button class="btn secondary" style="padding:5px 8px" onclick="openProtectedPhoto('${escapeHtml(item[key])}').catch(e => alert(e.message))">Foto</button>` : "";
-      $("checksTable").innerHTML = rows.length ? `<table><thead><tr><th>Fecha</th><th>Promotor</th><th>Ingreso</th><th>Salida a comer</th><th>Entrada de comer</th><th>Salida</th><th>Laborado</th><th>Comida</th></tr></thead><tbody>${rows.map(item => `
+      const phaseCell = (item, phase) => `
+        <td>${escapeHtml(item[phase] || "")}
+          <div class="small">${escapeHtml([item[`${phase}_cadena`], item[`${phase}_tienda`]].filter(Boolean).join(" - "))} ${photo(item, `${phase}_foto_url`)}</div>
+          <div class="small">${item[`${phase}_distancia_m`] ? `${escapeHtml(item[`${phase}_distancia_m`])} m` : ""} ${escapeHtml(item[`${phase}_estado`] || "")}</div>
+        </td>`;
+      $("checksTable").innerHTML = rows.length ? `<table><thead><tr><th>Fecha</th><th>Promotor</th><th>Ingreso</th><th>Salida a comer</th><th>Entrada de comer</th><th>Salida</th><th>Verif. 1</th><th>Verif. 2</th><th>Verif. 3</th><th>Laborado</th><th>Comida</th></tr></thead><tbody>${rows.map(item => `
         <tr>
           <td>${escapeHtml(item.fecha)}</td>
           <td>${escapeHtml(item.promotor)}<div class="small">${escapeHtml(item.supervisor || "")}</div></td>
-          <td>${escapeHtml(item.ingreso || "")}<div class="small">${escapeHtml([item.ingreso_cadena, item.ingreso_tienda].filter(Boolean).join(" - "))} ${photo(item, "ingreso_foto_url")}</div></td>
-          <td>${escapeHtml(item.salida_comer || "")}<div class="small">${escapeHtml([item.salida_comer_cadena, item.salida_comer_tienda].filter(Boolean).join(" - "))} ${photo(item, "salida_comer_foto_url")}</div></td>
-          <td>${escapeHtml(item.entrada_comer || "")}<div class="small">${escapeHtml([item.entrada_comer_cadena, item.entrada_comer_tienda].filter(Boolean).join(" - "))} ${photo(item, "entrada_comer_foto_url")}</div></td>
-          <td>${escapeHtml(item.salida || "")}<div class="small">${escapeHtml([item.salida_cadena, item.salida_tienda].filter(Boolean).join(" - "))} ${photo(item, "salida_foto_url")}</div></td>
+          ${phaseCell(item, "ingreso")}
+          ${phaseCell(item, "salida_comer")}
+          ${phaseCell(item, "entrada_comer")}
+          ${phaseCell(item, "salida")}
+          ${phaseCell(item, "verificacion_ubicacion_1")}
+          ${phaseCell(item, "verificacion_ubicacion_2")}
+          ${phaseCell(item, "verificacion_ubicacion_3")}
           <td>${escapeHtml(item.tiempo_laborado || "")}</td>
           <td>${escapeHtml(item.tiempo_comida || "")}</td>
         </tr>`).join("")}</tbody></table>` : "Sin checadas en el periodo.";
