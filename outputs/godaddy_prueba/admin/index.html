@@ -69,10 +69,6 @@
     .metric h1 { margin-top: 4px; }
     .chart-wrap { min-height: 260px; }
     canvas { width: 100%; max-width: 100%; height: 260px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-    body.supervisor-mode #usersTable .actions button,
-    body.supervisor-mode #storesTable .actions button { display: none; }
-    body.supervisor-mode #usersTable .actions::after { content: "Solo lectura"; color: var(--muted); font-size: 13px; }
-    body.supervisor-mode #storesTable .actions::after { content: "Consulta"; color: var(--muted); font-size: 13px; }
     .hidden { display: none !important; }
     @media (max-width: 920px) {
       .layout, .two, .three { grid-template-columns: 1fr; }
@@ -160,7 +156,7 @@
             <h2>Usuarios</h2>
             <div id="usersTable" class="small">Cargando...</div>
           </div>
-          <div class="card admin-only">
+          <div class="card">
             <h2 id="userFormTitle">Agregar usuario</h2>
             <input id="userId" type="hidden">
             <label>Nombre<input id="userFullName"></label>
@@ -178,7 +174,7 @@
             </div>
           </div>
         </div>
-        <div class="card admin-only">
+        <div class="card">
           <h2>Carga masiva de promotores</h2>
           <p class="small">Formato CSV: nombre,email,numero_empleado,telefono,supervisor,contraseña. El supervisor puede ser nombre, email o número de empleado.</p>
           <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,5512345678,Supervisor 1,Cambiar123!</textarea>
@@ -209,7 +205,7 @@
             <h2>Tiendas</h2>
             <div id="storesTable" class="small">Cargando...</div>
           </div>
-          <div class="card admin-only">
+          <div class="card">
             <h2 id="storeFormTitle">Agregar tienda</h2>
             <input id="storeId" type="hidden">
             <label>Cadena<input id="storeChain" placeholder="Coppel, Suburbia, Liverpool"></label>
@@ -225,7 +221,7 @@
             </div>
           </div>
         </div>
-        <div class="card admin-only">
+        <div class="card">
           <h2>Carga masiva de tiendas</h2>
           <p class="small">Formato CSV: cadena,nombre,direccion,latitud,longitud,radio</p>
           <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50</textarea>
@@ -343,6 +339,17 @@
     function isAdmin() { return user && user.role === "admin"; }
     function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
     function statusBadge(status) { return `<span class="status ${status === "active" ? "ok" : "bad"}">${status === "active" ? "Activo" : "Inactivo"}</span>`; }
+    function requiredValue(id, label) {
+      const value = String($(id).value || "").trim();
+      if (!value) throw new Error(`${label} es obligatorio`);
+      return value;
+    }
+    function requiredNumber(id, label) {
+      const value = requiredValue(id, label);
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new Error(`${label} debe ser numerico`);
+      return number;
+    }
     function renderPhaseChart(byPhase) {
       const canvas = $("phaseChart");
       const ctx = canvas.getContext("2d");
@@ -437,6 +444,8 @@
       document.querySelectorAll(".admin-only").forEach(el => el.classList.toggle("hidden", !isAdmin()));
       const usersNav = document.querySelector('[data-view="users"]');
       if (usersNav) usersNav.textContent = isAdmin() ? "Usuarios" : "Mi personal";
+      $("userRole").disabled = !isAdmin();
+      $("userSupervisor").disabled = !isAdmin();
       if (!isAdmin() && currentView === "assignments") show("dashboard");
     }
     async function loadDashboard() {
@@ -545,12 +554,21 @@
     };
     async function saveUser() {
       const id = $("userId").value;
+      const password = $("userPassword").value;
+      if (!id && password.trim().length < 8) throw new Error("La contrasena inicial debe tener al menos 8 caracteres");
+      if (id && password.trim() && password.trim().length < 8) throw new Error("La contrasena nueva debe tener al menos 8 caracteres");
       const body = {
-        full_name: $("userFullName").value, email: $("userEmail").value || null, phone: $("userPhone").value || null,
-        employee_number: $("userEmployee").value || null, role: $("userRole").value, supervisor_id: $("userSupervisor").value || null,
+        full_name: requiredValue("userFullName", "El nombre"),
+        email: requiredValue("userEmail", "El email"),
+        phone: requiredValue("userPhone", "El telefono"),
+        employee_number: requiredValue("userEmployee", "El numero de empleado"),
+        role: isAdmin() ? $("userRole").value : "staff",
+        supervisor_id: isAdmin() ? ($("userSupervisor").value || null) : (user ? user.id : null),
         requires_location_verification: $("userRequiresVerification").checked,
-        password: $("userPassword").value, status: $("userStatus").value
+        password,
+        status: $("userStatus").value
       };
+      if (body.role === "staff" && !body.supervisor_id) throw new Error("El supervisor es obligatorio para promotores");
       if (id) {
         await request(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
         if (body.password) await request(`/admin/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password: body.password }) });
@@ -564,7 +582,7 @@
     function resetUserForm() {
       $("userFormTitle").textContent = "Agregar usuario";
       ["userId","userFullName","userEmail","userPhone","userEmployee","userPassword"].forEach(id => $(id).value = "");
-      $("userRole").value = "staff"; $("userSupervisor").value = ""; $("userStatus").value = "active";
+      $("userRole").value = "staff"; $("userSupervisor").value = isAdmin() ? "" : (user ? user.id : ""); $("userStatus").value = "active";
       $("userRequiresVerification").checked = false;
     }
     window.toggleLocationVerification = async (id, enabled) => {
@@ -588,15 +606,22 @@
     };
     window.deleteStore = async id => {
       if (!confirm("¿Eliminar/desactivar tienda?")) return;
-      await request(`/admin/stores/${id}`, { method: "DELETE" });
+      const data = await request(`/admin/stores/${id}`, { method: "DELETE" });
+      if (data.message) alert(data.message);
       await loadStores();
     };
     async function saveStore() {
       const id = $("storeId").value;
       const body = {
-        chain: $("storeChain").value || null, name: $("storeName").value, address: $("storeAddress").value || null, latitude: Number($("storeLat").value),
-        longitude: Number($("storeLng").value), allowed_radius_meters: Number($("storeRadius").value || 50), status: $("storeStatus").value
+        chain: requiredValue("storeChain", "La cadena"),
+        name: requiredValue("storeName", "El nombre de la tienda"),
+        address: requiredValue("storeAddress", "La direccion"),
+        latitude: requiredNumber("storeLat", "La latitud"),
+        longitude: requiredNumber("storeLng", "La longitud"),
+        allowed_radius_meters: requiredNumber("storeRadius", "El radio"),
+        status: $("storeStatus").value
       };
+      if (body.allowed_radius_meters <= 0) throw new Error("El radio debe ser mayor a cero");
       await request(id ? `/admin/stores/${id}` : "/admin/stores", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
       resetStoreForm(); await loadStores();
     }
@@ -759,7 +784,10 @@
           <td>${escapeHtml(n.title)}<div class="small">${escapeHtml(n.body || "")}</div>${n.image_url ? `<div class="small"><button class="btn secondary" onclick="openProtectedPhoto('${escapeHtml(n.image_url)}').catch(e => alert(e.message))">Ver imagen</button></div>` : ""}</td>
           <td>${statusBadge(n.status)}</td>
           <td>${escapeHtml(n.published_at || "")}</td>
-          <td class="actions"><button class="btn secondary" onclick="toggleNotice(${n.id}, '${n.status === "active" ? "inactive" : "active"}')">${n.status === "active" ? "Desactivar" : "Activar"}</button></td>
+          <td class="actions">
+            <button class="btn secondary" onclick="toggleNotice(${n.id}, '${n.status === "active" ? "inactive" : "active"}')">${n.status === "active" ? "Desactivar" : "Activar"}</button>
+            <button class="btn danger" onclick="deleteNotice(${n.id})">Eliminar</button>
+          </td>
         </tr>`).join("")}</tbody></table>` : "Sin avisos publicados.";
     }
     async function fileToBase64(file) {
@@ -791,6 +819,11 @@
     }
     window.toggleNotice = async (id, status) => {
       await request(`/admin/notices/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await loadNotices();
+    };
+    window.deleteNotice = async id => {
+      if (!confirm("Eliminar aviso? Esta accion no se puede deshacer.")) return;
+      await request(`/admin/notices/${id}`, { method: "DELETE" });
       await loadNotices();
     };
     async function downloadAssignments() {

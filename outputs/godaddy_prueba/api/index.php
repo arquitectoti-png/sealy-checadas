@@ -204,6 +204,58 @@ function require_admin(array $user): void
     require_role($user, ['admin']);
 }
 
+function require_text_field(array $data, string $key, string $label): string
+{
+    $value = trim((string)($data[$key] ?? ''));
+    if ($value === '') {
+        response_json(['error' => $label . ' es obligatorio'], 400);
+    }
+    return $value;
+}
+
+function require_email_field(array $data, string $key, string $label): string
+{
+    $value = require_text_field($data, $key, $label);
+    if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
+        response_json(['error' => $label . ' no tiene un formato valido'], 400);
+    }
+    return $value;
+}
+
+function require_float_field(array $data, string $key, string $label): float
+{
+    if (!isset($data[$key]) || trim((string)$data[$key]) === '' || !is_numeric($data[$key])) {
+        response_json(['error' => $label . ' es obligatorio'], 400);
+    }
+    return (float)$data[$key];
+}
+
+function require_status(?string $status): string
+{
+    $status = $status ?: 'active';
+    if (!in_array($status, ['active', 'inactive'], true)) {
+        response_json(['error' => 'Estado invalido'], 400);
+    }
+    return $status;
+}
+
+function can_manage_staff_user(PDO $pdo, array $user, int $targetId): array
+{
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([$targetId]);
+    $target = $stmt->fetch();
+    if (!$target) {
+        response_json(['error' => 'Usuario no encontrado'], 404);
+    }
+    if ($user['role'] === 'admin') {
+        return $target;
+    }
+    if ($target['role'] !== 'staff' || (int)$target['supervisor_id'] !== (int)$user['id']) {
+        response_json(['error' => 'Solo puedes modificar promotores asignados a ti'], 403);
+    }
+    return $target;
+}
+
 function haversine_meters(float $lat1, float $lng1, float $lat2, float $lng2): float
 {
     $earth = 6371000;
@@ -1190,42 +1242,62 @@ try {
 
     if ($method === 'POST' && $path === '/admin/stores') {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $data = body_json();
+        $chain = require_text_field($data, 'chain', 'La cadena');
+        $name = require_text_field($data, 'name', 'El nombre de la tienda');
+        $address = require_text_field($data, 'address', 'La direccion');
+        $lat = require_float_field($data, 'latitude', 'La latitud');
+        $lng = require_float_field($data, 'longitude', 'La longitud');
+        $radius = (int)($data['allowed_radius_meters'] ?? 0);
+        if ($radius <= 0) {
+            response_json(['error' => 'El radio debe ser mayor a cero'], 400);
+        }
+        $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, status)
              VALUES (?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
-            trim((string)($data['chain'] ?? '')),
-            trim((string)($data['name'] ?? '')),
-            $data['address'] ?? null,
-            (float)($data['latitude'] ?? 0),
-            (float)($data['longitude'] ?? 0),
-            (int)($data['allowed_radius_meters'] ?? 50),
-            $data['status'] ?? 'active',
+            $chain,
+            $name,
+            $address,
+            $lat,
+            $lng,
+            $radius,
+            $status,
         ]);
         response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
     }
 
     if ($method === 'PATCH' && ($match = route_match('/admin/stores/{id}', $path))) {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $id = (int)$match['id'];
         $data = body_json();
+        $chain = require_text_field($data, 'chain', 'La cadena');
+        $name = require_text_field($data, 'name', 'El nombre de la tienda');
+        $address = require_text_field($data, 'address', 'La direccion');
+        $lat = require_float_field($data, 'latitude', 'La latitud');
+        $lng = require_float_field($data, 'longitude', 'La longitud');
+        $radius = (int)($data['allowed_radius_meters'] ?? 0);
+        if ($radius <= 0) {
+            response_json(['error' => 'El radio debe ser mayor a cero'], 400);
+        }
+        $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "UPDATE stores
              SET chain = ?, name = ?, address = ?, latitude = ?, longitude = ?, allowed_radius_meters = ?, status = ?
              WHERE id = ?"
         );
         $stmt->execute([
-            trim((string)($data['chain'] ?? '')),
-            trim((string)($data['name'] ?? '')),
-            $data['address'] ?? null,
-            (float)($data['latitude'] ?? 0),
-            (float)($data['longitude'] ?? 0),
-            (int)($data['allowed_radius_meters'] ?? 50),
-            $data['status'] ?? 'active',
+            $chain,
+            $name,
+            $address,
+            $lat,
+            $lng,
+            $radius,
+            $status,
             $id,
         ]);
         response_json(['ok' => true]);
@@ -1233,15 +1305,28 @@ try {
 
     if ($method === 'DELETE' && ($match = route_match('/admin/stores/{id}', $path))) {
         $user = auth_user($pdo);
-        require_admin($user);
-        $stmt = $pdo->prepare("UPDATE stores SET status = 'inactive' WHERE id = ?");
-        $stmt->execute([(int)$match['id']]);
-        response_json(['ok' => true]);
+        require_role($user, ['admin', 'supervisor']);
+        $id = (int)$match['id'];
+        $stmt = $pdo->prepare(
+            "SELECT
+                (SELECT COUNT(*) FROM check_records WHERE store_id = ?) +
+                (SELECT COUNT(*) FROM check_attempts WHERE store_id = ?) AS total"
+        );
+        $stmt->execute([$id, $id]);
+        $linked = (int)($stmt->fetch()['total'] ?? 0);
+        if ($linked > 0) {
+            $stmt = $pdo->prepare("UPDATE stores SET status = 'inactive' WHERE id = ?");
+            $stmt->execute([$id]);
+            response_json(['ok' => true, 'deleted' => false, 'message' => 'La tienda tiene registros ligados y se desactivo para conservar el historial']);
+        }
+        $stmt = $pdo->prepare("DELETE FROM stores WHERE id = ?");
+        $stmt->execute([$id]);
+        response_json(['ok' => true, 'deleted' => true]);
     }
 
     if ($method === 'POST' && $path === '/admin/stores/import-csv') {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $data = body_json();
         $csv = trim((string)($data['csv'] ?? ''));
         if ($csv === '') {
@@ -1298,10 +1383,10 @@ try {
                 $lng = (float)($cols[3] ?? 0);
                 $radius = (int)($cols[4] ?? 50);
             }
-            if ($name === '' || !$lat || !$lng) {
+            if ($chain === '' || $name === '' || $address === '' || !$lat || !$lng || $radius <= 0) {
                 $skipped++;
                 if (count($errors) < 10) {
-                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre, latitud o longitud';
+                    $errors[] = 'Linea ' . ($i + 1) . ': falta cadena, nombre, direccion, latitud, longitud o radio';
                 }
                 continue;
             }
@@ -1321,7 +1406,7 @@ try {
 
     if ($method === 'POST' && $path === '/admin/users/import-csv') {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $data = body_json();
         $csv = trim((string)($data['csv'] ?? ''));
         if ($csv === '') {
@@ -1376,22 +1461,46 @@ try {
                 $supervisorKey = trim((string)($cols[4] ?? ''));
                 $password = trim((string)($cols[5] ?? '')) ?: $defaultPassword;
             }
-            if ($name === '' || $employee === '') {
+            if ($name === '' || $email === '' || $employee === '' || $phone === '' || $password === '') {
                 $skipped++;
                 if (count($errors) < 10) {
-                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre o numero de empleado';
+                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre, email, telefono, numero de empleado o contrasena';
+                }
+                continue;
+            }
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $skipped++;
+                if (count($errors) < 10) {
+                    $errors[] = 'Linea ' . ($i + 1) . ': email invalido';
                 }
                 continue;
             }
             $supervisorId = null;
-            if ($supervisorKey !== '') {
+            if ($user['role'] === 'supervisor') {
+                $supervisorId = (int)$user['id'];
+            } elseif ($supervisorKey !== '') {
                 $findSupervisor->execute([$supervisorKey, $supervisorKey, $supervisorKey]);
                 $found = $findSupervisor->fetch();
                 $supervisorId = $found ? (int)$found['id'] : null;
             }
-            $exists = $pdo->prepare("SELECT id FROM users WHERE employee_number = ? LIMIT 1");
+            if (!$supervisorId) {
+                $skipped++;
+                if (count($errors) < 10) {
+                    $errors[] = 'Linea ' . ($i + 1) . ': supervisor no encontrado';
+                }
+                continue;
+            }
+            $exists = $pdo->prepare("SELECT id, role, supervisor_id FROM users WHERE employee_number = ? LIMIT 1");
             $exists->execute([$employee]);
-            if ($exists->fetch()) {
+            $existing = $exists->fetch();
+            if ($existing) {
+                if ($user['role'] === 'supervisor' && ((string)$existing['role'] !== 'staff' || (int)$existing['supervisor_id'] !== (int)$user['id'])) {
+                    $skipped++;
+                    if (count($errors) < 10) {
+                        $errors[] = 'Linea ' . ($i + 1) . ': el promotor no esta asignado a este supervisor';
+                    }
+                    continue;
+                }
                 $stmtUpdate->execute([$name, $email ?: null, $phone ?: null, $supervisorId, $employee]);
                 $updated++;
             } else {
@@ -1426,56 +1535,81 @@ try {
 
     if ($method === 'POST' && $path === '/admin/users') {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $data = body_json();
-        $password = (string)($data['password'] ?? '');
-        if ($password === '') {
-            $password = bin2hex(random_bytes(4));
+        $fullName = require_text_field($data, 'full_name', 'El nombre');
+        $email = require_email_field($data, 'email', 'El email');
+        $phone = require_text_field($data, 'phone', 'El telefono');
+        $employeeNumber = require_text_field($data, 'employee_number', 'El numero de empleado');
+        $password = require_text_field($data, 'password', 'La contrasena');
+        if (strlen($password) < 8) {
+            response_json(['error' => 'La contrasena debe tener al menos 8 caracteres'], 400);
         }
-        $role = (string)($data['role'] ?? 'staff');
+        $role = $user['role'] === 'supervisor' ? 'staff' : (string)($data['role'] ?? 'staff');
         if (!in_array($role, ['admin', 'supervisor', 'staff'], true)) {
             response_json(['error' => 'Rol invalido'], 400);
         }
+        $supervisorId = null;
+        if ($role === 'staff') {
+            $supervisorId = $user['role'] === 'supervisor' ? (int)$user['id'] : nullable_int($data['supervisor_id'] ?? null);
+            if (!$supervisorId) {
+                response_json(['error' => 'El supervisor es obligatorio para promotores'], 400);
+            }
+        }
+        $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, requires_location_verification, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
-            trim((string)($data['full_name'] ?? '')),
-            $data['email'] ?? null,
-            $data['phone'] ?? null,
-            $data['employee_number'] ?? null,
+            $fullName,
+            $email,
+            $phone,
+            $employeeNumber,
             password_hash($password, PASSWORD_DEFAULT),
             $role,
-            nullable_int($data['supervisor_id'] ?? null),
+            $supervisorId,
             !empty($data['requires_location_verification']) ? 1 : 0,
-            $data['status'] ?? 'active',
+            $status,
         ]);
         response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId(), 'temporary_password' => $password]);
     }
 
     if ($method === 'PATCH' && ($match = route_match('/admin/users/{id}', $path))) {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
+        can_manage_staff_user($pdo, $user, (int)$match['id']);
         $data = body_json();
-        $role = (string)($data['role'] ?? 'staff');
+        $fullName = require_text_field($data, 'full_name', 'El nombre');
+        $email = require_email_field($data, 'email', 'El email');
+        $phone = require_text_field($data, 'phone', 'El telefono');
+        $employeeNumber = require_text_field($data, 'employee_number', 'El numero de empleado');
+        $role = $user['role'] === 'supervisor' ? 'staff' : (string)($data['role'] ?? 'staff');
         if (!in_array($role, ['admin', 'supervisor', 'staff'], true)) {
             response_json(['error' => 'Rol invalido'], 400);
         }
+        $supervisorId = null;
+        if ($role === 'staff') {
+            $supervisorId = $user['role'] === 'supervisor' ? (int)$user['id'] : nullable_int($data['supervisor_id'] ?? null);
+            if (!$supervisorId) {
+                response_json(['error' => 'El supervisor es obligatorio para promotores'], 400);
+            }
+        }
+        $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "UPDATE users
              SET full_name = ?, email = ?, phone = ?, employee_number = ?, role = ?, supervisor_id = ?, requires_location_verification = ?, status = ?
              WHERE id = ?"
         );
         $stmt->execute([
-            trim((string)($data['full_name'] ?? '')),
-            $data['email'] ?? null,
-            $data['phone'] ?? null,
-            $data['employee_number'] ?? null,
+            $fullName,
+            $email,
+            $phone,
+            $employeeNumber,
             $role,
-            nullable_int($data['supervisor_id'] ?? null),
+            $supervisorId,
             !empty($data['requires_location_verification']) ? 1 : 0,
-            $data['status'] ?? 'active',
+            $status,
             (int)$match['id'],
         ]);
         response_json(['ok' => true]);
@@ -1500,11 +1634,12 @@ try {
 
     if ($method === 'DELETE' && ($match = route_match('/admin/users/{id}', $path))) {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
         $id = (int)$match['id'];
         if ($id === (int)$user['id']) {
             response_json(['error' => 'No puedes eliminar tu propio usuario'], 400);
         }
+        can_manage_staff_user($pdo, $user, $id);
         $stmt = $pdo->prepare("UPDATE users SET status = 'inactive' WHERE id = ?");
         $stmt->execute([$id]);
         response_json(['ok' => true]);
@@ -1512,11 +1647,14 @@ try {
 
     if ($method === 'POST' && ($match = route_match('/admin/users/{id}/reset-password', $path))) {
         $user = auth_user($pdo);
-        require_admin($user);
+        require_role($user, ['admin', 'supervisor']);
+        can_manage_staff_user($pdo, $user, (int)$match['id']);
         $data = body_json();
         $password = (string)($data['password'] ?? '');
         if ($password === '') {
             $password = bin2hex(random_bytes(4));
+        } elseif (strlen($password) < 8) {
+            response_json(['error' => 'La contrasena debe tener al menos 8 caracteres'], 400);
         }
         $stmt = $pdo->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
         $stmt->execute([password_hash($password, PASSWORD_DEFAULT), (int)$match['id']]);
@@ -1565,6 +1703,7 @@ try {
         if ($title === '') {
             response_json(['error' => 'El titulo del aviso es obligatorio'], 400);
         }
+        $status = require_status($data['status'] ?? 'active');
         $imagePath = save_notice_image($data['image_base64'] ?? null, $config);
         $stmt = $pdo->prepare(
             "INSERT INTO notices (title, body, image_path, status, created_by, published_at)
@@ -1574,7 +1713,7 @@ try {
             $title,
             $data['body'] ?? null,
             $imagePath,
-            $data['status'] ?? 'active',
+            $status,
             (int)$user['id'],
         ]);
         response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
@@ -1585,7 +1724,33 @@ try {
         require_role($user, ['admin', 'supervisor']);
         $data = body_json();
         $stmt = $pdo->prepare("UPDATE notices SET status = ? WHERE id = ?");
-        $stmt->execute([$data['status'] ?? 'inactive', (int)$match['id']]);
+        $stmt->execute([require_status($data['status'] ?? 'inactive'), (int)$match['id']]);
+        response_json(['ok' => true]);
+    }
+
+    if ($method === 'DELETE' && ($match = route_match('/admin/notices/{id}', $path))) {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $id = (int)$match['id'];
+        $stmt = $pdo->prepare("SELECT image_path FROM notices WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $notice = $stmt->fetch();
+        if (!$notice) {
+            response_json(['error' => 'Aviso no encontrado'], 404);
+        }
+        $imagePath = $notice['image_path'] ?? null;
+        $stmt = $pdo->prepare("DELETE FROM notices WHERE id = ?");
+        $stmt->execute([$id]);
+        if ($imagePath) {
+            $stmt = $pdo->prepare("SELECT COUNT(*) total FROM notices WHERE image_path = ?");
+            $stmt->execute([$imagePath]);
+            if ((int)($stmt->fetch()['total'] ?? 0) === 0) {
+                $file = notice_absolute_path($imagePath, $config);
+                if ($file && is_file($file)) {
+                    @unlink($file);
+                }
+            }
+        }
         response_json(['ok' => true]);
     }
 
