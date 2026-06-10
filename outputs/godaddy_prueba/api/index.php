@@ -594,9 +594,10 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
     $timestamp = strtotime($captured) ?: time();
     $serverNow = time();
     $timeDriftSeconds = abs($serverNow - $timestamp);
-    $checkedAt = date('Y-m-d H:i:s', $serverNow);
-    $checkDate = date('Y-m-d', strtotime($checkedAt));
+    $futureDriftSeconds = $timestamp - $serverNow;
     $capturedAt = date('Y-m-d H:i:s', $timestamp);
+    $checkedAt = $source === 'offline_sync' ? $capturedAt : date('Y-m-d H:i:s', $serverNow);
+    $checkDate = date('Y-m-d', strtotime($checkedAt));
     $gpsAccuracy = isset($data['gps_accuracy_meters']) ? (float)$data['gps_accuracy_meters'] : null;
     $gpsIsMocked = !empty($data['gps_is_mocked']);
 
@@ -620,7 +621,7 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
              (user_id, store_id, phase, attempted_at, latitude, longitude, distance_meters, reason, device_id)
              VALUES (?, ?, ?, ?, ?, ?, NULL, 'device_time_suspicious', ?)"
         );
-        $stmt->execute([(int)$user['id'], $storeId, $phase, date('Y-m-d H:i:s', $serverNow), $lat, $lng, $deviceId]);
+        $stmt->execute([(int)$user['id'], $storeId, $phase, $checkedAt, $lat, $lng, $deviceId]);
         return [
             'status' => 'rejected',
             'message' => 'Ubicacion simulada detectada. Desactiva aplicaciones de ubicacion falsa.'
@@ -666,7 +667,7 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)"
         );
         $status = $source === 'offline_sync' ? 'synced' : 'valid';
-        if ($timeDriftSeconds > 900) {
+        if ($futureDriftSeconds > 300 || ($source !== 'offline_sync' && $timeDriftSeconds > 900)) {
             $status = 'manual_review';
         }
         $stmt->execute([
