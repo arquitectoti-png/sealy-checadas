@@ -106,7 +106,7 @@
         <button class="admin-only" data-view="assignments">Asignaciones</button>
         <button data-view="stores">Tiendas</button>
         <button data-view="checks">Checadas</button>
-        <button data-view="incidentsView">Incidencias</button>
+        <button data-view="notices">Avisos</button>
         <button data-view="reports">Reportes</button>
       </nav>
     </aside>
@@ -169,6 +169,7 @@
             <label>No. empleado<input id="userEmployee"></label>
             <label>Rol<select id="userRole"><option value="staff">Promotor</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label>
             <label>Supervisor<select id="userSupervisor"></select></label>
+            <label style="display:flex;gap:8px;align-items:center;color:var(--text);font-weight:400"><input id="userRequiresVerification" type="checkbox" style="width:auto"> Pedir verificaciones de ubicación</label>
             <label>Contraseña inicial / nueva<input id="userPassword" placeholder="Opcional al editar"></label>
             <label>Estado<select id="userStatus"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
             <div class="actions">
@@ -250,24 +251,19 @@
         </div>
       </section>
 
-      <section id="incidentsView" class="view hidden">
+      <section id="notices" class="view hidden">
         <div class="grid two">
           <div class="card">
-            <h2>Personal sin ingreso</h2>
-            <div class="grid three">
-              <label>Fecha<input id="incidentsDate" type="date"></label>
-              <label>Supervisor<select id="incidentsSupervisor"></select></label>
-              <label>Buscar promotor<input id="incidentsPromoter" placeholder="Nombre o empleado"></label>
-            </div>
-            <button id="loadIncidentsBtn" class="btn">Consultar incidencias</button>
-            <div id="incidentsTable" class="small" style="margin-top:12px">Consulta una fecha.</div>
+            <h2>Avisos publicados</h2>
+            <div id="noticesTable" class="small">Cargando...</div>
           </div>
-          <div class="card admin-only">
-            <h2>Tipos de incidencia</h2>
-            <label>Nombre<input id="incidentTypeName" placeholder="Vacaciones"></label>
-            <label>Estado<select id="incidentTypeStatus"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
-            <button id="saveIncidentTypeBtn" class="btn">Agregar tipo</button>
-            <div id="incidentTypesTable" class="small" style="margin-top:12px">Cargando...</div>
+          <div class="card">
+            <h2>Nuevo aviso</h2>
+            <label>Titulo<input id="noticeTitle"></label>
+            <label>Mensaje<textarea id="noticeBody" placeholder="Escribe el aviso para los promotores"></textarea></label>
+            <label>Imagen opcional<input id="noticeImage" type="file" accept="image/*"></label>
+            <label>Estado<select id="noticeStatus"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
+            <button id="saveNoticeBtn" class="btn">Publicar aviso</button>
           </div>
         </div>
       </section>
@@ -285,6 +281,8 @@
           </div>
           <div class="actions">
             <button id="downloadChecksBtn" class="btn">Bajar checadas por periodo</button>
+            <button id="downloadCheckedBtn" class="btn secondary">Bajar los que si checaron</button>
+            <button id="downloadNotCheckedBtn" class="btn secondary">Bajar los que no checaron</button>
             <button id="downloadAssignmentsBtn" class="btn secondary">Bajar promotores asignados</button>
           </div>
           <div class="card" style="margin-top:12px">
@@ -301,7 +299,7 @@
     let user = JSON.parse(localStorage.getItem("adminUser") || "null");
     let users = [];
     let stores = [];
-    let incidentTypes = [];
+    let notices = [];
     let currentView = "dashboard";
     const $ = id => document.getElementById(id);
 
@@ -431,7 +429,6 @@
       $("reportEnd").value = today();
       $("checksStart").value = firstDay();
       $("checksEnd").value = today();
-      $("incidentsDate").value = today();
       configureRoleUi();
       refreshAll();
     }
@@ -486,15 +483,15 @@
         ? ['<option value="">Todos</option>'].concat(supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`)).join("")
         : '<option value="">Mi equipo</option>';
       $("checksSupervisor").innerHTML = $("reportSupervisor").innerHTML;
-      $("incidentsSupervisor").innerHTML = $("reportSupervisor").innerHTML;
       $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
     }
     function renderUsers() {
-      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>Rol</th><th>Supervisor</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
+      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>Rol</th><th>Supervisor</th><th>Verif. ubicación</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
         <tr>
           <td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.email || u.employee_number || "")}</div></td>
           <td>${roleLabel(u.role)}</td>
           <td>${escapeHtml(u.supervisor_name || "-")}</td>
+          <td>${u.role === "staff" ? `<button class="btn secondary" onclick="toggleLocationVerification(${u.id}, ${Number(u.requires_location_verification || 0) ? "false" : "true"})">${Number(u.requires_location_verification || 0) ? "Activa" : "Inactiva"}</button>` : "-"}</td>
           <td>${statusBadge(u.status)}</td>
           <td class="actions">
             <button class="btn secondary" onclick="editUser(${u.id})">Editar</button>
@@ -532,6 +529,7 @@
       $("userEmployee").value = u.employee_number || "";
       $("userRole").value = u.role;
       $("userSupervisor").value = u.supervisor_id || "";
+      $("userRequiresVerification").checked = Number(u.requires_location_verification || 0) === 1;
       $("userStatus").value = u.status;
       $("userPassword").value = "";
     };
@@ -550,6 +548,7 @@
       const body = {
         full_name: $("userFullName").value, email: $("userEmail").value || null, phone: $("userPhone").value || null,
         employee_number: $("userEmployee").value || null, role: $("userRole").value, supervisor_id: $("userSupervisor").value || null,
+        requires_location_verification: $("userRequiresVerification").checked,
         password: $("userPassword").value, status: $("userStatus").value
       };
       if (id) {
@@ -566,7 +565,12 @@
       $("userFormTitle").textContent = "Agregar usuario";
       ["userId","userFullName","userEmail","userPhone","userEmployee","userPassword"].forEach(id => $(id).value = "");
       $("userRole").value = "staff"; $("userSupervisor").value = ""; $("userStatus").value = "active";
+      $("userRequiresVerification").checked = false;
     }
+    window.toggleLocationVerification = async (id, enabled) => {
+      await request(`/admin/users/${id}/location-verification`, { method: "POST", body: JSON.stringify({ enabled }) });
+      await loadUsers();
+    };
     async function assignPromoters() {
       const supervisorId = $("assignSupervisor").value;
       const staffIds = Array.from($("assignStaff").selectedOptions).map(o => Number(o.value));
@@ -696,70 +700,64 @@
       if (columns.length) qs.set("columns", columns.join(","));
       await downloadCsv(`/admin/reports/checks.csv?${qs}`, "reporte_checadas.csv");
     }
-    async function loadIncidentTypes() {
-      const data = await request("/admin/incident-types");
-      incidentTypes = data.items || [];
-      renderIncidentTypes();
+    function applyReportFilters(qs) {
+      if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
+      if ($("reportChain").value.trim()) qs.set("chain", $("reportChain").value.trim());
+      if ($("reportPromoter").value.trim()) qs.set("promoter", $("reportPromoter").value.trim());
+      if ($("reportStoreQuery").value.trim()) qs.set("store_query", $("reportStoreQuery").value.trim());
+      return qs;
     }
-    function renderIncidentTypes() {
-      if (!$("incidentTypesTable")) return;
-      $("incidentTypesTable").innerHTML = incidentTypes.length ? `<table><thead><tr><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody>${incidentTypes.map(t => `
+    async function downloadChecked() {
+      const qs = applyReportFilters(new URLSearchParams({ date: $("reportEnd").value || today() }));
+      await downloadCsv(`/admin/reports/checked.csv?${qs}`, "promotores_que_si_checaron.csv");
+    }
+    async function downloadNotChecked() {
+      const qs = new URLSearchParams({ date: $("reportEnd").value || today() });
+      if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
+      if ($("reportPromoter").value.trim()) qs.set("promoter", $("reportPromoter").value.trim());
+      await downloadCsv(`/admin/reports/not-checked.csv?${qs}`, "promotores_que_no_checaron.csv");
+    }
+    async function loadNotices() {
+      const data = await request("/admin/notices");
+      notices = data.items || [];
+      $("noticesTable").innerHTML = notices.length ? `<table><thead><tr><th>Aviso</th><th>Estado</th><th>Fecha</th><th></th></tr></thead><tbody>${notices.map(n => `
         <tr>
-          <td>${escapeHtml(t.name)}</td>
-          <td>${statusBadge(t.status)}</td>
-          <td class="actions"><button class="btn secondary" onclick="toggleIncidentType(${t.id})">${t.status === "active" ? "Desactivar" : "Activar"}</button></td>
-        </tr>`).join("")}</tbody></table>` : "Sin tipos registrados.";
+          <td>${escapeHtml(n.title)}<div class="small">${escapeHtml(n.body || "")}</div>${n.image_url ? `<div class="small"><button class="btn secondary" onclick="openProtectedPhoto('${escapeHtml(n.image_url)}').catch(e => alert(e.message))">Ver imagen</button></div>` : ""}</td>
+          <td>${statusBadge(n.status)}</td>
+          <td>${escapeHtml(n.published_at || "")}</td>
+          <td class="actions"><button class="btn secondary" onclick="toggleNotice(${n.id}, '${n.status === "active" ? "inactive" : "active"}')">${n.status === "active" ? "Desactivar" : "Activar"}</button></td>
+        </tr>`).join("")}</tbody></table>` : "Sin avisos publicados.";
     }
-    async function saveIncidentType() {
-      await request("/admin/incident-types", {
-        method: "POST",
-        body: JSON.stringify({ name: $("incidentTypeName").value, status: $("incidentTypeStatus").value })
+    async function fileToBase64(file) {
+      if (!file) return null;
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
       });
-      $("incidentTypeName").value = "";
-      await loadIncidentTypes();
     }
-    window.toggleIncidentType = async id => {
-      const item = incidentTypes.find(t => Number(t.id) === Number(id));
-      if (!item) return;
-      await request(`/admin/incident-types/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: item.name, status: item.status === "active" ? "inactive" : "active" })
-      });
-      await loadIncidentTypes();
-    };
-    async function loadIncidents() {
-      const qs = new URLSearchParams({ date: $("incidentsDate").value || today() });
-      if (isAdmin() && $("incidentsSupervisor").value) qs.set("supervisor_id", $("incidentsSupervisor").value);
-      if ($("incidentsPromoter").value.trim()) qs.set("promoter", $("incidentsPromoter").value.trim());
-      const data = await request(`/admin/incidents?${qs}`);
-      const rows = data.items || [];
-      const activeTypes = incidentTypes.filter(t => t.status === "active");
-      $("incidentsTable").innerHTML = rows.length ? `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Incidencia</th><th>Notas</th><th></th></tr></thead><tbody>${rows.map(item => `
-        <tr>
-          <td>${escapeHtml(item.full_name)}<div class="small">${escapeHtml(item.employee_number || "")}</div></td>
-          <td>${escapeHtml(item.supervisor_name || "-")}</td>
-          <td>
-            ${item.incident_type ? `<div class="small">Actual: ${escapeHtml(item.incident_type)}</div>` : ""}
-            <select id="incidentType_${item.user_id}">${activeTypes.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")}</select>
-          </td>
-          <td><input id="incidentNotes_${item.user_id}" value="${escapeHtml(item.notes || "")}" placeholder="Notas"></td>
-          <td><button class="btn" onclick="saveIncident(${item.user_id})">Guardar</button></td>
-        </tr>`).join("")}</tbody></table>` : "Todos los promotores filtrados tienen ingreso registrado o no hay personal.";
-    }
-    window.saveIncident = async userId => {
-      const typeId = $(`incidentType_${userId}`).value;
-      if (!typeId) return alert("Selecciona un tipo de incidencia.");
-      await request("/admin/incidents", {
+    async function saveNotice() {
+      const file = $("noticeImage").files[0] || null;
+      await request("/admin/notices", {
         method: "POST",
         body: JSON.stringify({
-          user_id: userId,
-          incident_type_id: typeId,
-          incident_date: $("incidentsDate").value || today(),
-          notes: $(`incidentNotes_${userId}`).value || null
+          title: $("noticeTitle").value,
+          body: $("noticeBody").value || null,
+          image_base64: await fileToBase64(file),
+          status: $("noticeStatus").value
         })
       });
-      await loadIncidents();
-      alert("Incidencia guardada.");
+      $("noticeTitle").value = "";
+      $("noticeBody").value = "";
+      $("noticeImage").value = "";
+      $("noticeStatus").value = "active";
+      await loadNotices();
+      alert("Aviso publicado.");
+    }
+    window.toggleNotice = async (id, status) => {
+      await request(`/admin/notices/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await loadNotices();
     };
     async function downloadAssignments() {
       const qs = new URLSearchParams();
@@ -776,14 +774,14 @@
         assignments: ["Asignaciones", "Supervisores con sus promotores."],
         stores: ["Tiendas", "Alta, modificación, eliminación y carga masiva."],
         checks: ["Checadas", "Consulta en pantalla con foto, hora, tienda y tiempos."],
-        incidentsView: ["Incidencias", "Personal sin ingreso y tipos de incidencia."],
+        notices: ["Avisos", "Comunicados e imagenes para promotores."],
         reports: ["Reportes", "Descargas por periodo y por supervisores."]
       };
       $("title").textContent = labels[viewId][0];
       $("subtitle").textContent = labels[viewId][1];
     }
     async function refreshAll() {
-      await Promise.all([loadDashboard(), loadUsers(), loadStores(), loadIncidentTypes()]);
+      await Promise.all([loadDashboard(), loadUsers(), loadStores(), loadNotices()]);
     }
     $("loginBtn").onclick = () => login().catch(e => alert(e.message));
     $("logoutBtn").onclick = logout;
@@ -796,9 +794,10 @@
     $("importStoresBtn").onclick = () => importStores().catch(e => alert(e.message));
     $("importUsersBtn").onclick = () => importUsers().catch(e => alert(e.message));
     $("loadChecksBtn").onclick = () => loadChecksView().catch(e => alert(e.message));
-    $("loadIncidentsBtn").onclick = () => loadIncidents().catch(e => alert(e.message));
-    $("saveIncidentTypeBtn").onclick = () => saveIncidentType().catch(e => alert(e.message));
+    $("saveNoticeBtn").onclick = () => saveNotice().catch(e => alert(e.message));
     $("downloadChecksBtn").onclick = () => downloadChecks().catch(e => alert(e.message));
+    $("downloadCheckedBtn").onclick = () => downloadChecked().catch(e => alert(e.message));
+    $("downloadNotCheckedBtn").onclick = () => downloadNotChecked().catch(e => alert(e.message));
     $("downloadAssignmentsBtn").onclick = () => downloadAssignments().catch(e => alert(e.message));
     document.querySelectorAll("nav button").forEach(btn => btn.onclick = () => show(btn.dataset.view));
     renderReportColumns();

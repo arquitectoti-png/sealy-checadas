@@ -54,9 +54,14 @@ class _AppShellState extends State<AppShell> {
   int _tabIndex = 0;
   bool _busy = false;
   String _phase = 'ingreso';
-  String _message = 'Listo para iniciar.';
+  String _checkMessage = 'Listo para iniciar.';
+  String _recordsMessage = 'Sin registros cargados.';
+  String _syncMessage = 'Sin sincronizaciones recientes.';
+  String _passwordMessage = '';
+  String _noticesMessage = 'Sin avisos cargados.';
   List<PendingCheck> _queue = [];
   List<CheckRecord> _records = [];
+  List<NoticeItem> _notices = [];
   NearestStore? _lastNearestStore;
 
   @override
@@ -98,6 +103,7 @@ class _AppShellState extends State<AppShell> {
       if (queueJson != null) {
         final list = jsonDecode(queueJson) as List<dynamic>;
         _queue = list.map((item) => PendingCheck.fromJson(item as Map<String, dynamic>)).toList();
+        _purgeExpiredRejectedChecks();
       }
     });
   }
@@ -105,6 +111,8 @@ class _AppShellState extends State<AppShell> {
   String get _apiBaseUrl => _apiController.text.trim().replaceAll(RegExp(r'/+$'), '');
 
   bool get _isLoggedIn => _token != null && _user != null;
+  List<PendingCheck> get _pendingQueue => _queue.where((item) => item.rejectedAt == null).toList();
+  List<PendingCheck> get _rejectedQueue => _queue.where((item) => item.rejectedAt != null).toList();
 
   Future<bool> _isOnline() async {
     try {
@@ -181,7 +189,7 @@ class _AppShellState extends State<AppShell> {
       await _prefs?.setString('token', _token!);
       await _prefs?.setString('user', jsonEncode(_user!.toJson()));
       await _loadBootstrap();
-      _message = 'Sesion iniciada.';
+      _checkMessage = 'Sesion iniciada.';
     });
   }
 
@@ -193,7 +201,11 @@ class _AppShellState extends State<AppShell> {
       _user = null;
       _bootstrap = null;
       _records = [];
-      _message = 'Sesion cerrada.';
+      _checkMessage = 'Sesion cerrada.';
+      _recordsMessage = 'Sin registros cargados.';
+      _syncMessage = 'Sin sincronizaciones recientes.';
+      _passwordMessage = '';
+      _noticesMessage = 'Sin avisos cargados.';
     });
   }
 
@@ -208,7 +220,7 @@ class _AppShellState extends State<AppShell> {
       });
       _currentPasswordController.clear();
       _newPasswordController.clear();
-      _message = 'Contraseña actualizada.';
+      _passwordMessage = 'Contraseña actualizada.';
     });
   }
 
@@ -225,25 +237,26 @@ class _AppShellState extends State<AppShell> {
   Future<void> _makeCheck() async {
     await _runBusy(() async {
       final availablePhases = _availablePhaseOptions;
-      if (availablePhases.isEmpty) {
-        _message = 'Ya registraste las 4 checadas de hoy.';
+      final selectablePhases = availablePhases.where((item) => item.enabled).toList();
+      if (selectablePhases.isEmpty) {
+        _checkMessage = 'Ya registraste las checadas requeridas de hoy.';
         return;
       }
-      if (!availablePhases.any((item) => item.key == _phase)) {
-        _phase = availablePhases.first.key;
+      if (!selectablePhases.any((item) => item.key == _phase)) {
+        _phase = selectablePhases.first.key;
       }
       final position = await _currentPosition();
       final mockLocation = position.isMocked;
       if (mockLocation) {
-        _message = 'Ubicacion simulada detectada. Desactiva apps de GPS falso.';
+        _checkMessage = 'Ubicacion simulada detectada. Desactiva apps de GPS falso.';
         return;
       }
       if (position.accuracy > 75) {
-        _message = 'GPS impreciso (${position.accuracy.toStringAsFixed(1)} m). Intenta en area abierta.';
+        _checkMessage = 'GPS impreciso (${position.accuracy.toStringAsFixed(1)} m). Intenta en area abierta.';
         return;
       }
       if (_deviceClockLooksSuspicious()) {
-        _message = 'Hora del dispositivo sospechosa. Activa fecha y hora automaticas.';
+        _checkMessage = 'Hora del dispositivo sospechosa. Activa fecha y hora automaticas.';
         return;
       }
       final nearest = _nearestStore(position);
@@ -255,7 +268,7 @@ class _AppShellState extends State<AppShell> {
       final clientDistance = nearest.distanceMeters;
 
       if (clientDistance > store.allowedRadiusMeters) {
-        _message =
+        _checkMessage =
             'Bloqueado: tienda más cercana ${store.name} a ${clientDistance.toStringAsFixed(1)} m. Radio permitido ${store.allowedRadiusMeters} m.';
         setState(() {});
         return;
@@ -288,7 +301,7 @@ class _AppShellState extends State<AppShell> {
 
       if (!await _isOnline()) {
         await _addToQueue(pending);
-        _message = 'Checada guardada offline. Pendiente de sincronizar.';
+        _checkMessage = 'Checada guardada offline. Pendiente de sincronizar.';
         return;
       }
 
@@ -300,10 +313,10 @@ class _AppShellState extends State<AppShell> {
       );
 
       if (data['status'] == 'blocked_out_of_range') {
-        _message =
+        _checkMessage =
             'Bloqueado: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m de la tienda. Radio ${data['allowed_radius_meters']} m.';
       } else {
-        _message = 'Checada registrada. Distancia: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m.';
+        _checkMessage = 'Checada registrada. Distancia: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m.';
         await _loadBootstrap();
       }
     });
@@ -312,17 +325,25 @@ class _AppShellState extends State<AppShell> {
   Future<void> _syncQueue() async {
     await _runBusy(() async {
       if (_queue.isEmpty) {
-        _message = 'No hay pendientes por sincronizar.';
+        _syncMessage = 'No hay pendientes por sincronizar.';
         return;
       }
       if (!await _isOnline()) {
-        _message = 'Sin conexion. La cola sigue pendiente.';
+        _syncMessage = 'Sin conexion. La cola sigue pendiente.';
+        return;
+      }
+
+      _purgeExpiredRejectedChecks();
+      final syncable = _queue.where((item) => item.rejectedAt == null).toList();
+      if (syncable.isEmpty) {
+        await _saveQueue();
+        _syncMessage = 'No hay pendientes por reenviar. Los rechazados se conservaran 48 horas.';
         return;
       }
 
       final data = await _request('/checks/sync', method: 'POST', body: {
         'device_id': await _deviceId(),
-        'items': _queue.map((item) => item.toSyncJson()).toList(),
+        'items': syncable.map((item) => item.toSyncJson()).toList(),
       });
 
       final syncedIds = ((data['synced'] ?? []) as List<dynamic>)
@@ -330,19 +351,30 @@ class _AppShellState extends State<AppShell> {
           .whereType<String>()
           .toSet();
 
-      _queue = _queue.where((item) => !syncedIds.contains(item.localId)).toList();
+      final rejectedItems = ((data['rejected'] ?? []) as List<dynamic>)
+          .map((item) => item as Map<String, dynamic>)
+          .toList();
+      final rejectedById = {
+        for (final item in rejectedItems)
+          if (item['local_id'] != null) item['local_id'].toString(): item['message']?.toString() ?? 'Rechazada'
+      };
+
+      _queue = _queue
+          .where((item) => !syncedIds.contains(item.localId))
+          .map((item) => rejectedById.containsKey(item.localId) ? item.markRejected(rejectedById[item.localId]!) : item)
+          .toList();
+      _purgeExpiredRejectedChecks();
       await _saveQueue();
       await _loadBootstrap();
 
-      final rejected = ((data['rejected'] ?? []) as List<dynamic>).length;
-      _message = 'Sincronizados: ${syncedIds.length}. Rechazados: $rejected.';
+      _syncMessage = 'Sincronizados: ${syncedIds.length}. Rechazados: ${rejectedItems.length}.';
     });
   }
 
   Future<void> _loadRecords() async {
     await _runBusy(() async {
       if (!await _isOnline()) {
-        _message = 'Sin datos o sin internet. Conectate para actualizar el historial.';
+        _recordsMessage = 'Sin datos o sin internet. Conectate para actualizar el historial.';
         return;
       }
       final now = DateTime.now();
@@ -352,7 +384,20 @@ class _AppShellState extends State<AppShell> {
       final data = await _request('/checks/my?start=$start&end=$end');
       final items = (data['items'] ?? []) as List<dynamic>;
       _records = items.map((item) => CheckRecord.fromJson(item as Map<String, dynamic>)).toList();
-      _message = 'Historial actualizado.';
+      _recordsMessage = 'Historial actualizado.';
+    });
+  }
+
+  Future<void> _loadNotices() async {
+    await _runBusy(() async {
+      if (!await _isOnline()) {
+        _noticesMessage = 'Sin datos o sin internet. Conectate para actualizar avisos.';
+        return;
+      }
+      final data = await _request('/me/notices');
+      final items = (data['items'] ?? []) as List<dynamic>;
+      _notices = items.map((item) => NoticeItem.fromJson(item as Map<String, dynamic>)).toList();
+      _noticesMessage = _notices.isEmpty ? 'No hay avisos disponibles.' : 'Avisos actualizados.';
     });
   }
 
@@ -363,8 +408,17 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _saveQueue() async {
+    _purgeExpiredRejectedChecks();
     await _prefs?.setString('queue', jsonEncode(_queue.map((item) => item.toJson()).toList()));
     setState(() {});
+  }
+
+  void _purgeExpiredRejectedChecks() {
+    final cutoff = DateTime.now().subtract(const Duration(hours: 48));
+    _queue = _queue.where((item) {
+      final rejectedAt = item.rejectedAt;
+      return rejectedAt == null || rejectedAt.isAfter(cutoff);
+    }).toList();
   }
 
   Future<String> _deviceId() async {
@@ -413,12 +467,22 @@ class _AppShellState extends State<AppShell> {
   Future<void> _runBusy(Future<void> Function() action) async {
     setState(() {
       _busy = true;
-      _message = 'Procesando...';
     });
     try {
       await action();
     } catch (err) {
-      _message = err.toString().replaceFirst('Exception: ', '');
+      final message = err.toString().replaceFirst('Exception: ', '');
+      if (_tabIndex == 1) {
+        _recordsMessage = message;
+      } else if (_tabIndex == 2) {
+        _syncMessage = message;
+      } else if (_tabIndex == 3) {
+        _passwordMessage = message;
+      } else if (_tabIndex == 4) {
+        _noticesMessage = message;
+      } else {
+        _checkMessage = message;
+      }
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -459,6 +523,8 @@ class _AppShellState extends State<AppShell> {
                 setState(() => _tabIndex = index);
                 if (index == 1 && _records.isEmpty && !_busy) {
                   _loadRecords();
+                } else if (index == 4 && _notices.isEmpty && !_busy) {
+                  _loadNotices();
                 }
               },
               destinations: const [
@@ -466,6 +532,7 @@ class _AppShellState extends State<AppShell> {
                 NavigationDestination(icon: Icon(Icons.history), label: 'Registros'),
                 NavigationDestination(icon: Icon(Icons.sync), label: 'Sync'),
                 NavigationDestination(icon: Icon(Icons.lock_outline), label: 'Clave'),
+                NavigationDestination(icon: Icon(Icons.campaign_outlined), label: 'Avisos'),
               ],
             )
           : null,
@@ -502,13 +569,13 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
         const SizedBox(height: 12),
-        Text(_message),
+        Text(_checkMessage),
       ],
     );
   }
 
   Widget _buildHome() {
-    final pages = [_buildCheckTab(), _buildRecordsTab(), _buildSyncTab(), _buildPasswordTab()];
+    final pages = [_buildCheckTab(), _buildRecordsTab(), _buildSyncTab(), _buildPasswordTab(), _buildNoticesTab()];
     return Stack(
       children: [
         pages[_tabIndex],
@@ -530,26 +597,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           _InfoCard(
             title: _user?.fullName ?? 'Personal',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_storeSummaryText()),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    const Chip(
-                      label: Text('Operacion normal'),
-                      avatar: Icon(Icons.wifi, size: 18),
-                    ),
-                    Chip(
-                      label: Text('${_queue.length} pendiente(s)'),
-                      avatar: const Icon(Icons.sync_problem, size: 18),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            child: Text(_storeSummaryText()),
           ),
           _InfoCard(
             title: 'Nueva checada',
@@ -557,15 +605,25 @@ class _AppShellState extends State<AppShell> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 if (availablePhases.isEmpty)
-                  const Text('Ya registraste las 4 checadas de hoy.')
+                  const Text('Ya registraste las checadas requeridas de hoy.')
                 else
                   DropdownButtonFormField<String>(
                     initialValue: availablePhases.any((item) => item.key == _phase) ? _phase : availablePhases.first.key,
                     decoration: const InputDecoration(labelText: 'Fase'),
                     items: availablePhases
-                        .map((item) => DropdownMenuItem(value: item.key, child: Text(item.value)))
+                        .map(
+                          (item) => DropdownMenuItem(
+                            value: item.key,
+                            enabled: item.enabled,
+                            child: Text(item.enabled ? item.label : '${item.label} - pendiente anterior'),
+                          ),
+                        )
                         .toList(),
-                    onChanged: (value) => setState(() => _phase = value ?? availablePhases.first.key),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _phase = value);
+                      }
+                    },
                   ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
@@ -574,7 +632,7 @@ class _AppShellState extends State<AppShell> {
                   label: const Text('Tomar foto y checar'),
                 ),
                 const SizedBox(height: 8),
-                Text(_message),
+                Text(_checkMessage),
               ],
             ),
           ),
@@ -587,29 +645,46 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  List<MapEntry<String, String>> get _phaseOptions => const [
-        MapEntry('ingreso', 'Ingreso'),
-        MapEntry('salida_comer', 'Salida a comer'),
-        MapEntry('entrada_comer', 'Entrada de comer'),
-        MapEntry('salida', 'Salida'),
+  List<PhaseOption> get _phaseOptions => [
+        const PhaseOption('ingreso', 'Ingreso'),
+        const PhaseOption('salida_comer', 'Salida a comer', requiredPrevious: 'ingreso'),
+        const PhaseOption('entrada_comer', 'Entrada de comer', requiredPrevious: 'salida_comer'),
+        const PhaseOption('salida', 'Salida', requiredPrevious: 'entrada_comer'),
+        if (_bootstrap?.requiresLocationVerification == true) ...const [
+          PhaseOption('verificacion_ubicacion_1', 'Verificación de ubicación 1', verification: true),
+          PhaseOption('verificacion_ubicacion_2', 'Verificación de ubicación 2', verification: true),
+          PhaseOption('verificacion_ubicacion_3', 'Verificación de ubicación 3', verification: true),
+        ],
       ];
 
-  Set<String> get _checkedPhasesToday => (_bootstrap?.todayChecks ?? []).map((check) => check.phase).toSet();
+  Set<String> get _checkedPhasesToday {
+    final checked = (_bootstrap?.todayChecks ?? []).map((check) => check.phase).toSet();
+    checked.addAll(_pendingQueue.where((item) => _isToday(item.capturedAtDevice)).map((item) => item.phase));
+    return checked;
+  }
 
-  List<MapEntry<String, String>> get _availablePhaseOptions {
-    final checked = _checkedPhasesToday;
-    for (final item in _phaseOptions) {
-      if (!checked.contains(item.key)) {
-        return [item];
-      }
+  bool _isToday(String isoDate) {
+    final parsed = DateTime.tryParse(isoDate);
+    if (parsed == null) {
+      return false;
     }
-    return [];
+    final now = DateTime.now();
+    return parsed.year == now.year && parsed.month == now.month && parsed.day == now.day;
+  }
+
+  List<PhaseOption> get _availablePhaseOptions {
+    final checked = _checkedPhasesToday;
+    return _phaseOptions
+        .where((item) => !checked.contains(item.key))
+        .map((item) => item.copyWith(enabled: item.requiredPrevious == null || checked.contains(item.requiredPrevious)))
+        .toList();
   }
 
   void _syncSelectedPhaseWithToday() {
     final available = _availablePhaseOptions;
-    if (available.isNotEmpty && _checkedPhasesToday.contains(_phase)) {
-      _phase = available.first.key;
+    final selectable = available.where((item) => item.enabled).toList();
+    if (selectable.isNotEmpty && (!selectable.any((item) => item.key == _phase) || _checkedPhasesToday.contains(_phase))) {
+      _phase = selectable.first.key;
     }
   }
 
@@ -643,7 +718,7 @@ class _AppShellState extends State<AppShell> {
           label: const Text('Actualizar historial'),
         ),
         const SizedBox(height: 12),
-        Text(_message),
+        Text(_recordsMessage),
         const SizedBox(height: 12),
         if (_records.isEmpty)
           const _InfoCard(title: 'Historial', child: Text('Sin registros cargados.'))
@@ -683,7 +758,7 @@ class _AppShellState extends State<AppShell> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('${_queue.length} checada(s) pendientes.'),
+              Text('${_pendingQueue.length} checada(s) pendientes.'),
               const SizedBox(height: 8),
               const Text('Usa esta seccion solo cuando necesites reenviar checadas pendientes.'),
               const SizedBox(height: 12),
@@ -693,14 +768,25 @@ class _AppShellState extends State<AppShell> {
                 label: const Text('Sincronizar ahora'),
               ),
               const SizedBox(height: 8),
-              Text(_message),
+              Text(_syncMessage),
             ],
           ),
         ),
-        ..._queue.map(
+        ..._pendingQueue.map(
           (item) => _InfoCard(
             title: _phaseLabel(item.phase),
             child: Text('${item.capturedAtDevice}\nDistancia cliente: ${item.distanceMetersClient.toStringAsFixed(1)} m'),
+          ),
+        ),
+        ..._rejectedQueue.map(
+          (item) => _InfoCard(
+            title: '${_phaseLabel(item.phase)} - Rechazada',
+            child: Text(
+              '${item.capturedAtDevice}\n'
+              'Distancia cliente: ${item.distanceMetersClient.toStringAsFixed(1)} m\n'
+              '${item.rejectedMessage ?? "Rechazada"}\n'
+              'Se ocultara automaticamente despues de 48 horas.',
+            ),
           ),
         ),
       ],
@@ -734,10 +820,51 @@ class _AppShellState extends State<AppShell> {
                 label: const Text('Actualizar contraseña'),
               ),
               const SizedBox(height: 8),
-              Text(_message),
+              Text(_passwordMessage),
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildNoticesTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        FilledButton.icon(
+          onPressed: _busy ? null : _loadNotices,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Actualizar avisos'),
+        ),
+        const SizedBox(height: 12),
+        Text(_noticesMessage),
+        const SizedBox(height: 12),
+        if (_notices.isEmpty)
+          const _InfoCard(title: 'Avisos', child: Text('Sin avisos disponibles.'))
+        else
+          ..._notices.map(
+            (notice) => _InfoCard(
+              title: notice.title,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (notice.body.isNotEmpty) Text(notice.body),
+                  if (notice.imageUrl.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Image.network(
+                      '$_apiBaseUrl${notice.imageUrl}',
+                      headers: {'Authorization': 'Bearer $_token'},
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Text('No se pudo cargar la imagen.'),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(notice.publishedAt, style: Theme.of(context).textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -823,6 +950,32 @@ class NearestStore {
 
   final StoreInfo store;
   final double distanceMeters;
+}
+
+class PhaseOption {
+  const PhaseOption(
+    this.key,
+    this.label, {
+    this.requiredPrevious,
+    this.verification = false,
+    this.enabled = true,
+  });
+
+  final String key;
+  final String label;
+  final String? requiredPrevious;
+  final bool verification;
+  final bool enabled;
+
+  PhaseOption copyWith({bool? enabled}) {
+    return PhaseOption(
+      key,
+      label,
+      requiredPrevious: requiredPrevious,
+      verification: verification,
+      enabled: enabled ?? this.enabled,
+    );
+  }
 }
 
 class _InfoCard extends StatelessWidget {
@@ -921,10 +1074,16 @@ class StoreInfo {
 }
 
 class MobileBootstrap {
-  MobileBootstrap({required this.activeStores, required this.todayChecks, this.serverTime});
+  MobileBootstrap({
+    required this.activeStores,
+    required this.todayChecks,
+    required this.requiresLocationVerification,
+    this.serverTime,
+  });
 
   final List<StoreInfo> activeStores;
   final List<TodayCheck> todayChecks;
+  final bool requiresLocationVerification;
   final String? serverTime;
 
   factory MobileBootstrap.fromJson(Map<String, dynamic> json) {
@@ -933,6 +1092,7 @@ class MobileBootstrap {
     return MobileBootstrap(
       activeStores: stores.map((item) => StoreInfo.fromJson(item as Map<String, dynamic>)).toList(),
       todayChecks: checks.map((item) => TodayCheck.fromJson(item as Map<String, dynamic>)).toList(),
+      requiresLocationVerification: json['requires_location_verification'] == true || json['requires_location_verification'] == 1,
       serverTime: json['server_time']?.toString(),
     );
   }
@@ -940,6 +1100,7 @@ class MobileBootstrap {
   Map<String, dynamic> toJson() => {
         'active_stores': activeStores.map((item) => item.toJson()).toList(),
         'today_checks': todayChecks.map((item) => item.toJson()).toList(),
+        'requires_location_verification': requiresLocationVerification,
         'server_time': serverTime,
       };
 }
@@ -979,6 +1140,8 @@ class PendingCheck {
     required this.distanceMetersClient,
     required this.deviceId,
     required this.photoBase64,
+    this.rejectedAt,
+    this.rejectedMessage,
   });
 
   final String localId;
@@ -992,6 +1155,8 @@ class PendingCheck {
   final double distanceMetersClient;
   final String deviceId;
   final String photoBase64;
+  final DateTime? rejectedAt;
+  final String? rejectedMessage;
 
   factory PendingCheck.fromJson(Map<String, dynamic> json) {
     return PendingCheck(
@@ -1006,6 +1171,26 @@ class PendingCheck {
       distanceMetersClient: _readDouble(json['distance_meters_client']),
       deviceId: json['device_id']?.toString() ?? '',
       photoBase64: json['photo_base64']?.toString() ?? '',
+      rejectedAt: DateTime.tryParse(json['rejected_at']?.toString() ?? ''),
+      rejectedMessage: json['rejected_message']?.toString(),
+    );
+  }
+
+  PendingCheck markRejected(String message) {
+    return PendingCheck(
+      localId: localId,
+      storeId: storeId,
+      phase: phase,
+      capturedAtDevice: capturedAtDevice,
+      latitude: latitude,
+      longitude: longitude,
+      gpsAccuracyMeters: gpsAccuracyMeters,
+      gpsIsMocked: gpsIsMocked,
+      distanceMetersClient: distanceMetersClient,
+      deviceId: deviceId,
+      photoBase64: photoBase64,
+      rejectedAt: DateTime.now(),
+      rejectedMessage: message,
     );
   }
 
@@ -1021,6 +1206,8 @@ class PendingCheck {
         'distance_meters_client': distanceMetersClient,
         'device_id': deviceId,
         'photo_base64': photoBase64,
+        if (rejectedAt != null) 'rejected_at': rejectedAt!.toIso8601String(),
+        if (rejectedMessage != null) 'rejected_message': rejectedMessage,
       };
 
   Map<String, dynamic> toApiJson() => {
@@ -1091,6 +1278,32 @@ class CheckRecord {
   }
 }
 
+class NoticeItem {
+  NoticeItem({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.imageUrl,
+    required this.publishedAt,
+  });
+
+  final int id;
+  final String title;
+  final String body;
+  final String imageUrl;
+  final String publishedAt;
+
+  factory NoticeItem.fromJson(Map<String, dynamic> json) {
+    return NoticeItem(
+      id: _readInt(json['id']),
+      title: json['title']?.toString() ?? '',
+      body: json['body']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString() ?? '',
+      publishedAt: json['published_at']?.toString() ?? '',
+    );
+  }
+}
+
 double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
   const earth = 6371000.0;
   final dLat = _degToRad(lat2 - lat1);
@@ -1126,6 +1339,12 @@ String _phaseLabel(String phase) {
       return 'Entrada de comer';
     case 'salida':
       return 'Salida';
+    case 'verificacion_ubicacion_1':
+      return 'Verificación de ubicación 1';
+    case 'verificacion_ubicacion_2':
+      return 'Verificación de ubicación 2';
+    case 'verificacion_ubicacion_3':
+      return 'Verificación de ubicación 3';
     default:
       return phase;
   }

@@ -67,37 +67,35 @@ function ensure_runtime_schema(PDO $pdo): void
         $pdo->exec("ALTER TABLE stores ADD COLUMN chain VARCHAR(100) NULL AFTER id");
         $pdo->exec("CREATE INDEX idx_stores_chain_status ON stores (chain, status)");
     }
+    $column = $pdo->query("SHOW COLUMNS FROM users LIKE 'requires_location_verification'")->fetch();
+    if (!$column) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN requires_location_verification TINYINT(1) NOT NULL DEFAULT 0 AFTER supervisor_id");
+        $pdo->exec("CREATE INDEX idx_users_location_verification ON users (requires_location_verification)");
+    }
     $pdo->exec(
-        "CREATE TABLE IF NOT EXISTS incident_types (
-          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(120) NOT NULL UNIQUE,
-          status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
-          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        "ALTER TABLE check_records
+         MODIFY phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                           'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL"
     );
     $pdo->exec(
-        "CREATE TABLE IF NOT EXISTS staff_incidents (
+        "ALTER TABLE check_attempts
+         MODIFY phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                           'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL"
+    );
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS notices (
           id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-          user_id BIGINT UNSIGNED NOT NULL,
-          incident_type_id BIGINT UNSIGNED NOT NULL,
-          incident_date DATE NOT NULL,
-          notes TEXT NULL,
+          title VARCHAR(160) NOT NULL,
+          body TEXT NULL,
+          image_path VARCHAR(255) NULL,
+          status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
           created_by BIGINT UNSIGNED NOT NULL,
+          published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          UNIQUE KEY uq_staff_incident_day (user_id, incident_date),
-          INDEX idx_staff_incident_date (incident_date),
-          INDEX idx_staff_incident_type (incident_type_id)
+          INDEX idx_notices_status_date (status, published_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
-    $count = (int)$pdo->query("SELECT COUNT(*) total FROM incident_types")->fetch()['total'];
-    if ($count === 0) {
-        $stmt = $pdo->prepare("INSERT INTO incident_types (name, status) VALUES (?, 'active')");
-        foreach (['Vacaciones', 'Falta sin goce de sueldo', 'Falta justificada'] as $name) {
-            $stmt->execute([$name]);
-        }
-    }
 }
 
 function response_json(array $data, int $status = 200): void
@@ -234,6 +232,15 @@ function photo_absolute_path(?string $path, array $config): ?string
     return rtrim($config['upload_dir'], '/\\') . '/' . $path;
 }
 
+function notice_absolute_path(?string $path, array $config): ?string
+{
+    $path = normalize_photo_path($path);
+    if (!$path || !preg_match('#^notices/[a-f0-9]{24}\.jpg$#', $path)) {
+        return null;
+    }
+    return rtrim($config['upload_dir'], '/\\') . '/' . $path;
+}
+
 function save_photo(?string $photoBase64, array $config): ?string
 {
     if (!$photoBase64) {
@@ -314,6 +321,31 @@ function save_photo(?string $photoBase64, array $config): ?string
     return 'checks/' . $day . '/' . $name;
 }
 
+function save_notice_image(?string $imageBase64, array $config): ?string
+{
+    if (!$imageBase64) {
+        return null;
+    }
+    if (strpos($imageBase64, ',') !== false) {
+        [, $imageBase64] = explode(',', $imageBase64, 2);
+    }
+    $bytes = base64_decode($imageBase64, true);
+    if ($bytes === false || strlen($bytes) < 100) {
+        response_json(['error' => 'Imagen invalida'], 400);
+    }
+    if (strlen($bytes) > 2_000_000) {
+        response_json(['error' => 'La imagen del aviso es demasiado grande'], 413);
+    }
+
+    $dir = rtrim($config['upload_dir'], '/\\') . '/notices';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        response_json(['error' => 'No se pudo crear la carpeta de avisos'], 500);
+    }
+    $name = bin2hex(random_bytes(12)) . '.jpg';
+    file_put_contents($dir . '/' . $name, $bytes);
+    return 'notices/' . $name;
+}
+
 function get_store(PDO $pdo, int $storeId): array
 {
     $stmt = $pdo->prepare("SELECT * FROM stores WHERE id = ? AND status = 'active' LIMIT 1");
@@ -327,7 +359,15 @@ function get_store(PDO $pdo, int $storeId): array
 
 function normalize_phase(string $phase): string
 {
-    $allowed = ['ingreso', 'salida_comer', 'entrada_comer', 'salida'];
+    $allowed = [
+        'ingreso',
+        'salida_comer',
+        'entrada_comer',
+        'salida',
+        'verificacion_ubicacion_1',
+        'verificacion_ubicacion_2',
+        'verificacion_ubicacion_3',
+    ];
     if (!in_array($phase, $allowed, true)) {
         response_json(['error' => 'Fase invalida'], 400);
     }
@@ -339,12 +379,17 @@ function phase_order(): array
     return ['ingreso', 'salida_comer', 'entrada_comer', 'salida'];
 }
 
+function is_verification_phase(string $phase): bool
+{
+    return in_array($phase, ['verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3'], true);
+}
+
 function validate_phase_sequence(PDO $pdo, int $userId, string $phase, string $checkDate, int $storeId, float $lat, float $lng, string $deviceId): void
 {
     $order = phase_order();
     $index = array_search($phase, $order, true);
     if ($index === false) {
-        response_json(['error' => 'Fase invalida'], 400);
+        return;
     }
 
     $stmt = $pdo->prepare("SELECT phase FROM check_records WHERE user_id = ? AND check_date = ?");
@@ -393,6 +438,9 @@ function phase_label(string $phase): string
         'salida_comer' => 'Salida a comer',
         'entrada_comer' => 'Entrada de comer',
         'salida' => 'Salida',
+        'verificacion_ubicacion_1' => 'Verificacion de ubicacion 1',
+        'verificacion_ubicacion_2' => 'Verificacion de ubicacion 2',
+        'verificacion_ubicacion_3' => 'Verificacion de ubicacion 3',
     ][$phase] ?? $phase;
 }
 
@@ -445,6 +493,12 @@ function photo_url(?string $path): ?string
 {
     $path = normalize_photo_path($path);
     return $path ? '/photos/' . $path : null;
+}
+
+function notice_image_url(?string $path): ?string
+{
+    $path = normalize_photo_path($path);
+    return $path ? '/notice-images/' . $path : null;
 }
 
 function build_daily_check_rows(array $rows): array
@@ -512,6 +566,9 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
 
     $storeId = (int)($data['store_id'] ?? 0);
     $phase = normalize_phase((string)($data['phase'] ?? ''));
+    if (is_verification_phase($phase) && (int)($user['requires_location_verification'] ?? 0) !== 1) {
+        response_json(['error' => 'No tienes verificaciones de ubicacion asignadas'], 403);
+    }
     $lat = (float)($data['latitude'] ?? 0);
     $lng = (float)($data['longitude'] ?? 0);
     $deviceId = (string)($data['device_id'] ?? '');
@@ -741,6 +798,18 @@ try {
         exit;
     }
 
+    if ($method === 'GET' && preg_match('#^/notice-images/(notices/[a-f0-9]{24}\.jpg)$#', $path, $noticeMatch)) {
+        auth_user($pdo);
+        $file = notice_absolute_path($noticeMatch[1], $config);
+        if (!$file || !is_file($file)) {
+            response_json(['error' => 'Imagen no encontrada'], 404);
+        }
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: private, max-age=300');
+        readfile($file);
+        exit;
+    }
+
     if ($method === 'GET' && $path === '/me/mobile-bootstrap') {
         $user = auth_user($pdo);
         require_role($user, ['staff']);
@@ -769,9 +838,28 @@ try {
                 'full_name' => $user['full_name'],
                 'role' => $user['role']
             ],
+            'requires_location_verification' => (int)($user['requires_location_verification'] ?? 0) === 1,
             'active_stores' => $stores,
             'today_checks' => $stmt->fetchAll()
         ]);
+    }
+
+    if ($method === 'GET' && $path === '/me/notices') {
+        $user = auth_user($pdo);
+        require_role($user, ['staff']);
+        $stmt = $pdo->query(
+            "SELECT id, title, body, image_path, published_at
+             FROM notices
+             WHERE status = 'active'
+             ORDER BY published_at DESC
+             LIMIT 30"
+        );
+        $items = $stmt->fetchAll();
+        foreach ($items as &$item) {
+            $item['image_url'] = notice_image_url($item['image_path'] ?? null);
+            unset($item['image_path']);
+        }
+        response_json(['items' => $items]);
     }
 
     if ($method === 'POST' && $path === '/checks') {
@@ -1306,6 +1394,7 @@ try {
         }
         $stmt = $pdo->prepare(
             "SELECT u.id, u.full_name, u.email, u.phone, u.employee_number, u.role, u.supervisor_id,
+                    u.requires_location_verification,
                     s.full_name AS supervisor_name, u.status
              FROM users u
              LEFT JOIN users s ON s.id = u.supervisor_id
@@ -1329,8 +1418,8 @@ try {
             response_json(['error' => 'Rol invalido'], 400);
         }
         $stmt = $pdo->prepare(
-            "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, requires_location_verification, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             trim((string)($data['full_name'] ?? '')),
@@ -1340,6 +1429,7 @@ try {
             password_hash($password, PASSWORD_DEFAULT),
             $role,
             nullable_int($data['supervisor_id'] ?? null),
+            !empty($data['requires_location_verification']) ? 1 : 0,
             $data['status'] ?? 'active',
         ]);
         response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId(), 'temporary_password' => $password]);
@@ -1355,7 +1445,7 @@ try {
         }
         $stmt = $pdo->prepare(
             "UPDATE users
-             SET full_name = ?, email = ?, phone = ?, employee_number = ?, role = ?, supervisor_id = ?, status = ?
+             SET full_name = ?, email = ?, phone = ?, employee_number = ?, role = ?, supervisor_id = ?, requires_location_verification = ?, status = ?
              WHERE id = ?"
         );
         $stmt->execute([
@@ -1365,9 +1455,27 @@ try {
             $data['employee_number'] ?? null,
             $role,
             nullable_int($data['supervisor_id'] ?? null),
+            !empty($data['requires_location_verification']) ? 1 : 0,
             $data['status'] ?? 'active',
             (int)$match['id'],
         ]);
+        response_json(['ok' => true]);
+    }
+
+    if ($method === 'POST' && ($match = route_match('/admin/users/{id}/location-verification', $path))) {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $id = (int)$match['id'];
+        $data = body_json();
+        if ($user['role'] === 'supervisor') {
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'staff' AND supervisor_id = ?");
+            $stmt->execute([$id, (int)$user['id']]);
+            if (!$stmt->fetch()) {
+                response_json(['error' => 'Solo puedes modificar promotores asignados a ti'], 403);
+            }
+        }
+        $stmt = $pdo->prepare("UPDATE users SET requires_location_verification = ? WHERE id = ? AND role = 'staff'");
+        $stmt->execute([!empty($data['enabled']) ? 1 : 0, $id]);
         response_json(['ok' => true]);
     }
 
@@ -1412,90 +1520,53 @@ try {
         response_json(['ok' => true, 'assigned' => count($staffIds)]);
     }
 
-    if ($method === 'GET' && $path === '/admin/incident-types') {
+    if ($method === 'GET' && $path === '/admin/notices') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
-        $stmt = $pdo->query("SELECT * FROM incident_types ORDER BY status ASC, name ASC");
-        response_json(['items' => $stmt->fetchAll()]);
-    }
-
-    if ($method === 'POST' && $path === '/admin/incident-types') {
-        $user = auth_user($pdo);
-        require_admin($user);
-        $data = body_json();
-        $name = trim((string)($data['name'] ?? ''));
-        if ($name === '') {
-            response_json(['error' => 'El nombre del tipo es obligatorio'], 400);
-        }
-        $stmt = $pdo->prepare("INSERT INTO incident_types (name, status) VALUES (?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)");
-        $stmt->execute([$name, $data['status'] ?? 'active']);
-        response_json(['ok' => true]);
-    }
-
-    if ($method === 'PATCH' && ($match = route_match('/admin/incident-types/{id}', $path))) {
-        $user = auth_user($pdo);
-        require_admin($user);
-        $data = body_json();
-        $stmt = $pdo->prepare("UPDATE incident_types SET name = ?, status = ? WHERE id = ?");
-        $stmt->execute([trim((string)($data['name'] ?? '')), $data['status'] ?? 'active', (int)$match['id']]);
-        response_json(['ok' => true]);
-    }
-
-    if ($method === 'GET' && $path === '/admin/incidents') {
-        $user = auth_user($pdo);
-        require_role($user, ['admin', 'supervisor']);
-        $date = $_GET['date'] ?? date('Y-m-d');
-        $where = ["u.role = 'staff'", "u.status = 'active'"];
-        $params = [$date, $date];
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$_GET['supervisor_id'];
-        }
-        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
-            $term = '%' . trim((string)$_GET['promoter']) . '%';
-            $where[] = "(u.full_name LIKE ? OR u.employee_number LIKE ? OR u.email LIKE ?)";
-            array_push($params, $term, $term, $term);
-        }
-        $stmt = $pdo->prepare(
-            "SELECT u.id AS user_id, u.full_name, u.employee_number, sup.full_name AS supervisor_name,
-                    c.id AS ingreso_id, si.id AS incident_id, it.name AS incident_type, si.notes
-             FROM users u
-             LEFT JOIN users sup ON sup.id = u.supervisor_id
-             LEFT JOIN check_records c ON c.user_id = u.id AND c.check_date = ? AND c.phase = 'ingreso'
-             LEFT JOIN staff_incidents si ON si.user_id = u.id AND si.incident_date = ?
-             LEFT JOIN incident_types it ON it.id = si.incident_type_id
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY sup.full_name, u.full_name"
+        $stmt = $pdo->query(
+            "SELECT n.id, n.title, n.body, n.image_path, n.status, n.published_at, u.full_name AS created_by_name
+             FROM notices n
+             LEFT JOIN users u ON u.id = n.created_by
+             ORDER BY n.published_at DESC
+             LIMIT 100"
         );
-        $stmt->execute($params);
-        $rows = $stmt->fetchAll();
-        $items = array_values(array_filter($rows, fn($row) => !$row['ingreso_id']));
+        $items = $stmt->fetchAll();
+        foreach ($items as &$item) {
+            $item['image_url'] = notice_image_url($item['image_path'] ?? null);
+            unset($item['image_path']);
+        }
         response_json(['items' => $items]);
     }
 
-    if ($method === 'POST' && $path === '/admin/incidents') {
+    if ($method === 'POST' && $path === '/admin/notices') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
         $data = body_json();
-        $staffId = (int)($data['user_id'] ?? 0);
-        $incidentTypeId = (int)($data['incident_type_id'] ?? 0);
-        $date = (string)($data['incident_date'] ?? date('Y-m-d'));
-        if ($user['role'] === 'supervisor') {
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND supervisor_id = ? AND role = 'staff'");
-            $stmt->execute([$staffId, (int)$user['id']]);
-            if (!$stmt->fetch()) {
-                response_json(['error' => 'Solo puedes registrar incidencias de tu personal'], 403);
-            }
+        $title = trim((string)($data['title'] ?? ''));
+        if ($title === '') {
+            response_json(['error' => 'El titulo del aviso es obligatorio'], 400);
         }
+        $imagePath = save_notice_image($data['image_base64'] ?? null, $config);
         $stmt = $pdo->prepare(
-            "INSERT INTO staff_incidents (user_id, incident_type_id, incident_date, notes, created_by)
-             VALUES (?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE incident_type_id = VALUES(incident_type_id), notes = VALUES(notes), created_by = VALUES(created_by)"
+            "INSERT INTO notices (title, body, image_path, status, created_by, published_at)
+             VALUES (?, ?, ?, ?, ?, NOW())"
         );
-        $stmt->execute([$staffId, $incidentTypeId, $date, $data['notes'] ?? null, (int)$user['id']]);
+        $stmt->execute([
+            $title,
+            $data['body'] ?? null,
+            $imagePath,
+            $data['status'] ?? 'active',
+            (int)$user['id'],
+        ]);
+        response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
+    }
+
+    if ($method === 'PATCH' && ($match = route_match('/admin/notices/{id}', $path))) {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $data = body_json();
+        $stmt = $pdo->prepare("UPDATE notices SET status = ? WHERE id = ?");
+        $stmt->execute([$data['status'] ?? 'inactive', (int)$match['id']]);
         response_json(['ok' => true]);
     }
 
@@ -1591,6 +1662,92 @@ try {
         fputcsv($out, array_map(fn($key) => $columns[$key], $selected));
         foreach ($dailyRows as $row) {
             fputcsv($out, array_map(fn($key) => $row[$key] ?? '', $selected));
+        }
+        exit;
+    }
+
+    if ($method === 'GET' && $path === '/admin/reports/checked.csv') {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $date = $_GET['date'] ?? date('Y-m-d');
+        $where = ["c.check_date = ?", "c.phase = 'ingreso'"];
+        $params = [$date];
+        if ($user['role'] === 'supervisor') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$user['id'];
+        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$_GET['supervisor_id'];
+        }
+        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
+            $term = '%' . trim((string)$_GET['promoter']) . '%';
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
+            array_push($params, $term, $term, $term);
+        }
+        if (isset($_GET['chain']) && trim((string)$_GET['chain']) !== '') {
+            $where[] = "s.chain LIKE ?";
+            $params[] = '%' . trim((string)$_GET['chain']) . '%';
+        }
+        if (isset($_GET['store_query']) && trim((string)$_GET['store_query']) !== '') {
+            $term = '%' . trim((string)$_GET['store_query']) . '%';
+            $where[] = "(s.name LIKE ? OR s.address LIKE ?)";
+            array_push($params, $term, $term);
+        }
+        $stmt = $pdo->prepare(
+            "SELECT u.full_name AS promotor, u.employee_number, u.email, sup.full_name AS supervisor,
+                    s.chain AS cadena, s.name AS tienda, s.address AS direccion, c.checked_at AS ingreso,
+                    c.distance_meters, c.status
+             FROM check_records c
+             JOIN users u ON u.id = c.user_id
+             LEFT JOIN users sup ON sup.id = u.supervisor_id
+             JOIN stores s ON s.id = c.store_id
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY u.full_name ASC"
+        );
+        $stmt->execute($params);
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="promotores_que_si_checaron.csv"');
+        $out = fopen('php://output', 'w');
+        fputcsv($out, ['fecha', 'promotor', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'distancia_m', 'estado']);
+        foreach ($stmt->fetchAll() as $row) {
+            fputcsv($out, [$date, $row['promotor'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], $row['ingreso'], $row['distance_meters'], status_label((string)$row['status'])]);
+        }
+        exit;
+    }
+
+    if ($method === 'GET' && $path === '/admin/reports/not-checked.csv') {
+        $user = auth_user($pdo);
+        require_role($user, ['admin', 'supervisor']);
+        $date = $_GET['date'] ?? date('Y-m-d');
+        $where = ["u.role = 'staff'", "u.status = 'active'", "c.id IS NULL"];
+        $params = [$date];
+        if ($user['role'] === 'supervisor') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$user['id'];
+        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+            $where[] = "u.supervisor_id = ?";
+            $params[] = (int)$_GET['supervisor_id'];
+        }
+        if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
+            $term = '%' . trim((string)$_GET['promoter']) . '%';
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
+            array_push($params, $term, $term, $term);
+        }
+        $stmt = $pdo->prepare(
+            "SELECT u.full_name AS promotor, u.employee_number, u.email, sup.full_name AS supervisor
+             FROM users u
+             LEFT JOIN users sup ON sup.id = u.supervisor_id
+             LEFT JOIN check_records c ON c.user_id = u.id AND c.check_date = ? AND c.phase = 'ingreso'
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY sup.full_name, u.full_name"
+        );
+        $stmt->execute($params);
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="promotores_que_no_checaron.csv"');
+        $out = fopen('php://output', 'w');
+        fputcsv($out, ['fecha', 'promotor', 'numero_empleado', 'email', 'supervisor', 'estado']);
+        foreach ($stmt->fetchAll() as $row) {
+            fputcsv($out, [$date, $row['promotor'], $row['employee_number'], $row['email'], $row['supervisor'], 'Sin ingreso']);
         }
         exit;
     }
