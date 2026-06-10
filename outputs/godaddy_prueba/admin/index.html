@@ -176,7 +176,7 @@
         </div>
         <div class="card">
           <h2>Carga masiva de promotores</h2>
-          <p class="small">Formato CSV: nombre,email,numero_empleado,telefono,supervisor,contraseña. El supervisor puede ser nombre, email o número de empleado.</p>
+          <p class="small">Formato CSV: nombre,email,numero_empleado,telefono,supervisor,contraseña. El supervisor es opcional y queda solo como referencia.</p>
           <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,5512345678,Supervisor 1,Cambiar123!</textarea>
           <label>Contraseña default<input id="usersDefaultPassword" value="Cambiar123!"></label>
           <button id="importUsersBtn" class="btn">Cargar promotores</button>
@@ -186,14 +186,14 @@
       <section id="assignments" class="view hidden admin-only">
         <div class="grid two">
           <div class="card">
-            <h2>Asignar promotores a supervisor</h2>
+            <h2>Asignacion opcional de referencia</h2>
             <label>Supervisor<select id="assignSupervisor"></select></label>
             <label>Promotores disponibles/asignables<select id="assignStaff" multiple size="12"></select></label>
             <button id="assignBtn" class="btn">Asignar seleccionados</button>
-            <p class="small">Puedes seleccionar varios con Ctrl o Shift.</p>
+            <p class="small">Los supervisores pueden ver a todos los promotores. Esta asignacion queda solo como referencia para filtros historicos.</p>
           </div>
           <div class="card">
-            <h2>Promotores por supervisor</h2>
+            <h2>Referencia de supervisor</h2>
             <div id="assignmentTable" class="small">Cargando...</div>
           </div>
         </div>
@@ -279,7 +279,7 @@
             <button id="downloadChecksBtn" class="btn">Bajar checadas por periodo</button>
             <button id="downloadCheckedBtn" class="btn secondary">Bajar los que si checaron</button>
             <button id="downloadNotCheckedBtn" class="btn secondary">Bajar los que no checaron</button>
-            <button id="downloadAssignmentsBtn" class="btn secondary">Bajar promotores asignados</button>
+            <button id="downloadAssignmentsBtn" class="btn secondary">Bajar promotores y supervisores</button>
           </div>
           <div class="card" style="margin-top:12px">
             <h2>Columnas para reporte de checadas</h2>
@@ -490,7 +490,7 @@
       $("assignSupervisor").innerHTML = supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`).join("");
       $("reportSupervisor").innerHTML = isAdmin()
         ? ['<option value="">Todos</option>'].concat(supervisors.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}</option>`)).join("")
-        : '<option value="">Mi equipo</option>';
+        : '<option value="">Todos los promotores</option>';
       $("checksSupervisor").innerHTML = $("reportSupervisor").innerHTML;
       $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
     }
@@ -563,12 +563,11 @@
         phone: requiredValue("userPhone", "El telefono"),
         employee_number: requiredValue("userEmployee", "El numero de empleado"),
         role: isAdmin() ? $("userRole").value : "staff",
-        supervisor_id: isAdmin() ? ($("userSupervisor").value || null) : (user ? user.id : null),
+        supervisor_id: isAdmin() ? ($("userSupervisor").value || null) : null,
         requires_location_verification: $("userRequiresVerification").checked,
         password,
         status: $("userStatus").value
       };
-      if (body.role === "staff" && !body.supervisor_id) throw new Error("El supervisor es obligatorio para promotores");
       if (id) {
         await request(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
         if (body.password) await request(`/admin/users/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password: body.password }) });
@@ -829,7 +828,7 @@
     async function downloadAssignments() {
       const qs = new URLSearchParams();
       if ($("reportSupervisor").value) qs.set("supervisor_id", $("reportSupervisor").value);
-      await downloadCsv(`/admin/reports/assignments.csv?${qs}`, "promotores_por_supervisor.csv");
+      await downloadCsv(`/admin/reports/assignments.csv?${qs}`, "promotores_supervisores.csv");
     }
     function show(viewId) {
       currentView = viewId;
@@ -838,7 +837,7 @@
       const labels = {
         dashboard: ["Dashboard", "Resumen diario del sistema."],
         users: ["Usuarios", "Agregar, modificar, contraseñas y eliminar usuarios."],
-        assignments: ["Asignaciones", "Supervisores con sus promotores."],
+        assignments: ["Asignaciones", "Referencia opcional; todos los supervisores ven a todos los promotores."],
         stores: ["Tiendas", "Alta, modificación, eliminación y carga masiva."],
         checks: ["Checadas", "Consulta en pantalla con foto, hora, tienda y tiempos."],
         notices: ["Avisos", "Comunicados e imagenes para promotores."],

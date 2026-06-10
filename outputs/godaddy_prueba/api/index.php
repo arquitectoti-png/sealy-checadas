@@ -250,8 +250,8 @@ function can_manage_staff_user(PDO $pdo, array $user, int $targetId): array
     if ($user['role'] === 'admin') {
         return $target;
     }
-    if ($target['role'] !== 'staff' || (int)$target['supervisor_id'] !== (int)$user['id']) {
-        response_json(['error' => 'Solo puedes modificar promotores asignados a ti'], 403);
+    if ($target['role'] !== 'staff') {
+        response_json(['error' => 'Los supervisores solo pueden modificar promotores'], 403);
     }
     return $target;
 }
@@ -854,7 +854,7 @@ try {
             response_json(['error' => 'Foto no encontrada'], 404);
         }
         $allowed = $user['role'] === 'admin'
-            || ($user['role'] === 'supervisor' && (int)$record['supervisor_id'] === (int)$user['id'])
+            || $user['role'] === 'supervisor'
             || ($user['role'] === 'staff' && (int)$record['user_id'] === (int)$user['id']);
         if (!$allowed) {
             response_json(['error' => 'No tienes permiso para ver esta foto'], 403);
@@ -1003,16 +1003,10 @@ try {
         require_role($user, ['admin', 'supervisor']);
 
         $date = $_GET['date'] ?? date('Y-m-d');
-        $totalParams = [];
         $staffFilter = '';
 
-        if ($user['role'] === 'supervisor') {
-            $staffFilter = ' AND u.supervisor_id = ?';
-            $totalParams[] = (int)$user['id'];
-        }
-
         $stmt = $pdo->prepare("SELECT COUNT(*) total FROM users u WHERE u.role = 'staff' AND u.status = 'active' $staffFilter");
-        $stmt->execute($totalParams);
+        $stmt->execute();
         $totalStaff = (int)$stmt->fetch()['total'];
 
         $stmt = $pdo->prepare("SELECT COUNT(*) total FROM users u WHERE u.role = 'supervisor' AND u.status = 'active'");
@@ -1033,9 +1027,6 @@ try {
         $inactiveStores = (int)$storeCounts['inactive'];
 
         $params = [$date];
-        if ($user['role'] === 'supervisor') {
-            $params[] = (int)$user['id'];
-        }
         $stmt = $pdo->prepare(
             "SELECT
                 COUNT(DISTINCT CASE WHEN c.phase = 'ingreso' THEN c.user_id END) ingreso,
@@ -1052,9 +1043,6 @@ try {
         $counts = $stmt->fetch();
 
         $storeParams = [$date];
-        if ($user['role'] === 'supervisor') {
-            $storeParams[] = (int)$user['id'];
-        }
         $stmt = $pdo->prepare(
             "SELECT s.chain, s.name, COUNT(*) checks_count, COUNT(DISTINCT c.user_id) staff_count
              FROM check_records c
@@ -1082,10 +1070,6 @@ try {
 
         $supervisorParams = [$date];
         $supervisorWhere = '';
-        if ($user['role'] === 'supervisor') {
-            $supervisorWhere = ' AND sup.id = ?';
-            $supervisorParams[] = (int)$user['id'];
-        }
         $stmt = $pdo->prepare(
             "SELECT COALESCE(sup.full_name, 'Sin supervisor') supervisor_name,
                     COUNT(DISTINCT u.id) staff_total,
@@ -1104,11 +1088,6 @@ try {
         $attemptParams = [$date . ' 00:00:00', $date . ' 23:59:59'];
         $attemptJoin = '';
         $attemptFilter = '';
-        if ($user['role'] === 'supervisor') {
-            $attemptJoin = ' JOIN users u ON u.id = a.user_id';
-            $attemptFilter = ' AND u.supervisor_id = ?';
-            $attemptParams[] = (int)$user['id'];
-        }
         $stmt = $pdo->prepare(
             "SELECT COUNT(*) total
              FROM check_attempts a
@@ -1119,9 +1098,6 @@ try {
         $incidents = (int)$stmt->fetch()['total'];
 
         $timeParams = [$date];
-        if ($user['role'] === 'supervisor') {
-            $timeParams[] = (int)$user['id'];
-        }
         $stmt = $pdo->prepare(
             "SELECT c.user_id, c.check_date, c.phase, c.checked_at
              FROM check_records c
@@ -1191,10 +1167,7 @@ try {
         $where = ["c.check_date BETWEEN ? AND ?"];
         $params = [$start, $end];
 
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+        if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
             $where[] = "u.supervisor_id = ?";
             $params[] = (int)$_GET['supervisor_id'];
         }
@@ -1476,28 +1449,26 @@ try {
                 continue;
             }
             $supervisorId = null;
-            if ($user['role'] === 'supervisor') {
-                $supervisorId = (int)$user['id'];
-            } elseif ($supervisorKey !== '') {
+            if ($supervisorKey !== '') {
                 $findSupervisor->execute([$supervisorKey, $supervisorKey, $supervisorKey]);
                 $found = $findSupervisor->fetch();
                 $supervisorId = $found ? (int)$found['id'] : null;
-            }
-            if (!$supervisorId) {
-                $skipped++;
-                if (count($errors) < 10) {
-                    $errors[] = 'Linea ' . ($i + 1) . ': supervisor no encontrado';
+                if (!$supervisorId) {
+                    $skipped++;
+                    if (count($errors) < 10) {
+                        $errors[] = 'Linea ' . ($i + 1) . ': supervisor no encontrado';
+                    }
+                    continue;
                 }
-                continue;
             }
             $exists = $pdo->prepare("SELECT id, role, supervisor_id FROM users WHERE employee_number = ? LIMIT 1");
             $exists->execute([$employee]);
             $existing = $exists->fetch();
             if ($existing) {
-                if ($user['role'] === 'supervisor' && ((string)$existing['role'] !== 'staff' || (int)$existing['supervisor_id'] !== (int)$user['id'])) {
+                if ($user['role'] === 'supervisor' && (string)$existing['role'] !== 'staff') {
                     $skipped++;
                     if (count($errors) < 10) {
-                        $errors[] = 'Linea ' . ($i + 1) . ': el promotor no esta asignado a este supervisor';
+                        $errors[] = 'Linea ' . ($i + 1) . ': solo se pueden actualizar promotores';
                     }
                     continue;
                 }
@@ -1517,8 +1488,7 @@ try {
         $where = '';
         $params = [];
         if ($user['role'] === 'supervisor') {
-            $where = "WHERE u.role = 'staff' AND u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
+            $where = "WHERE u.role = 'staff'";
         }
         $stmt = $pdo->prepare(
             "SELECT u.id, u.full_name, u.email, u.phone, u.employee_number, u.role, u.supervisor_id,
@@ -1551,10 +1521,7 @@ try {
         }
         $supervisorId = null;
         if ($role === 'staff') {
-            $supervisorId = $user['role'] === 'supervisor' ? (int)$user['id'] : nullable_int($data['supervisor_id'] ?? null);
-            if (!$supervisorId) {
-                response_json(['error' => 'El supervisor es obligatorio para promotores'], 400);
-            }
+            $supervisorId = nullable_int($data['supervisor_id'] ?? null);
         }
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
@@ -1590,10 +1557,7 @@ try {
         }
         $supervisorId = null;
         if ($role === 'staff') {
-            $supervisorId = $user['role'] === 'supervisor' ? (int)$user['id'] : nullable_int($data['supervisor_id'] ?? null);
-            if (!$supervisorId) {
-                response_json(['error' => 'El supervisor es obligatorio para promotores'], 400);
-            }
+            $supervisorId = nullable_int($data['supervisor_id'] ?? null);
         }
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
@@ -1621,10 +1585,10 @@ try {
         $id = (int)$match['id'];
         $data = body_json();
         if ($user['role'] === 'supervisor') {
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'staff' AND supervisor_id = ?");
-            $stmt->execute([$id, (int)$user['id']]);
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'staff'");
+            $stmt->execute([$id]);
             if (!$stmt->fetch()) {
-                response_json(['error' => 'Solo puedes modificar promotores asignados a ti'], 403);
+                response_json(['error' => 'Los supervisores solo pueden modificar promotores'], 403);
             }
         }
         $stmt = $pdo->prepare("UPDATE users SET requires_location_verification = ? WHERE id = ? AND role = 'staff'");
@@ -1761,10 +1725,6 @@ try {
         $end = $_GET['end'] ?? date('Y-m-d');
         $where = ["c.check_date BETWEEN ? AND ?"];
         $params = [$start, $end];
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        }
         foreach (['store_id' => 'c.store_id', 'staff_id' => 'c.user_id', 'status' => 'c.status'] as $key => $column) {
             if (isset($_GET[$key]) && $_GET[$key] !== '') {
                 $where[] = "$column = ?";
@@ -1874,10 +1834,7 @@ try {
         $date = $_GET['date'] ?? date('Y-m-d');
         $where = ["c.check_date = ?", "c.phase = 'ingreso'"];
         $params = [$date];
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+        if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
             $where[] = "u.supervisor_id = ?";
             $params[] = (int)$_GET['supervisor_id'];
         }
@@ -1923,10 +1880,7 @@ try {
         $date = $_GET['date'] ?? date('Y-m-d');
         $where = ["u.role = 'staff'", "u.status = 'active'", "c.id IS NULL"];
         $params = [$date];
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+        if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
             $where[] = "u.supervisor_id = ?";
             $params[] = (int)$_GET['supervisor_id'];
         }
@@ -1959,10 +1913,7 @@ try {
         require_role($user, ['admin', 'supervisor']);
         $where = ["u.role = 'staff'"];
         $params = [];
-        if ($user['role'] === 'supervisor') {
-            $where[] = "u.supervisor_id = ?";
-            $params[] = (int)$user['id'];
-        } elseif (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '') {
+        if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
             $where[] = "u.supervisor_id = ?";
             $params[] = (int)$_GET['supervisor_id'];
         }
