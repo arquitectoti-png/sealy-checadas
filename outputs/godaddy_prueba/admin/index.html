@@ -176,7 +176,11 @@
         </div>
         <div class="card">
           <h2>Carga masiva de promotores</h2>
-          <p class="small">Formato CSV: nombre,email,numero_empleado,telefono,supervisor,contraseña. El supervisor es opcional y queda solo como referencia.</p>
+          <p class="small">Puedes subir Excel .xlsx o pegar CSV. Columnas: nombre,email,numero_empleado,telefono,supervisor,contrasena. El supervisor es opcional y queda solo como referencia.</p>
+          <div class="actions" style="margin-bottom:10px">
+            <a class="btn secondary" href="./assets/layout_carga_usuarios.xlsx" download>Descargar layout Excel</a>
+          </div>
+          <label>Archivo Excel .xlsx<input id="usersFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
           <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,5512345678,Supervisor 1,Cambiar123!</textarea>
           <label>Contraseña default<input id="usersDefaultPassword" value="Cambiar123!"></label>
           <button id="importUsersBtn" class="btn">Cargar promotores</button>
@@ -665,12 +669,19 @@
       await loadStores();
     }
     async function importUsers() {
+      const file = $("usersFile").files[0] || null;
       const data = await request("/admin/users/import-csv", {
         method: "POST",
-        body: JSON.stringify({ csv: $("usersCsv").value, default_password: $("usersDefaultPassword").value || "Cambiar123!" })
+        body: JSON.stringify({
+          csv: $("usersCsv").value,
+          file_name: file ? file.name : null,
+          file_base64: await fileToBase64(file),
+          default_password: $("usersDefaultPassword").value || "Cambiar123!"
+        })
       });
       const detail = data.errors && data.errors.length ? `\n\nPrimeros errores:\n${data.errors.join("\n")}` : "";
       alert(`Carga de promotores terminada. Creados: ${data.created}. Actualizados: ${data.updated}. Omitidos: ${data.skipped || 0}.${detail}`);
+      $("usersFile").value = "";
       await loadUsers();
     }
     function phaseLabel(phase) {

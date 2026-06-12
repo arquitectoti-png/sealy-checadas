@@ -1604,10 +1604,11 @@ try {
         require_role($user, ['admin', 'supervisor']);
         $data = body_json();
         $csv = trim((string)($data['csv'] ?? ''));
-        if ($csv === '') {
-            response_json(['error' => 'El CSV es obligatorio'], 400);
+        $fileBase64 = (string)($data['file_base64'] ?? '');
+        if ($csv === '' && $fileBase64 === '') {
+            response_json(['error' => 'Pega CSV o sube un archivo Excel .xlsx'], 400);
         }
-        $lines = preg_split('/\r\n|\r|\n/', $csv);
+        $rows = $fileBase64 !== '' ? parse_xlsx_rows($fileBase64) : parse_csv_rows($csv);
         $created = 0;
         $updated = 0;
         $skipped = 0;
@@ -1628,13 +1629,12 @@ try {
              LIMIT 1"
         );
         $header = null;
-        foreach ($lines as $i => $line) {
-            if (trim($line) === '') {
+        foreach ($rows as $i => $cols) {
+            if (!array_filter($cols, fn($value) => trim((string)$value) !== '')) {
                 continue;
             }
-            $cols = str_getcsv($line);
             if ($i === 0 && preg_match('/nombre|promotor|empleado|email|supervisor/i', implode(',', $cols))) {
-                $header = array_map(fn($value) => strtolower(trim((string)$value)), $cols);
+                $header = array_map(fn($value) => strtolower(str_replace([' ', '-'], '_', trim((string)$value))), $cols);
                 continue;
             }
             $row = [];
