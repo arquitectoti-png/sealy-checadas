@@ -225,6 +225,9 @@
         <div class="card">
           <h2>Carga masiva de tiendas</h2>
           <p class="small">Puedes subir Excel .xlsx o pegar CSV. Columnas: cadena,nombre,direccion,latitud,longitud,radio,zona_horaria. Zonas simples: CENTRO, SONORA, PACIFICO, BAJA, CANCUN.</p>
+          <div class="actions" style="margin-bottom:10px">
+            <a class="btn secondary" href="./assets/layout_carga_tiendas.xlsx" download>Descargar layout Excel</a>
+          </div>
           <label>Archivo Excel .xlsx<input id="storesFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
           <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50,CENTRO</textarea>
           <button id="importStoresBtn" class="btn">Cargar tiendas</button>
