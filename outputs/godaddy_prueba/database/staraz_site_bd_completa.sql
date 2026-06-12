@@ -32,12 +32,14 @@ CREATE TABLE IF NOT EXISTS stores (
   latitude DECIMAL(10, 7) NOT NULL,
   longitude DECIMAL(10, 7) NOT NULL,
   allowed_radius_meters INT UNSIGNED NOT NULL DEFAULT 50,
+  timezone VARCHAR(64) NOT NULL DEFAULT 'America/Mexico_City',
   status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_store_name (name),
   INDEX idx_stores_status (status),
-  INDEX idx_stores_chain_status (chain, status)
+  INDEX idx_stores_chain_status (chain, status),
+  INDEX idx_stores_timezone (timezone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS auth_tokens (

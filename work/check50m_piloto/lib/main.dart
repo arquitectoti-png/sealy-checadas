@@ -1043,6 +1043,7 @@ class StoreInfo {
     required this.latitude,
     required this.longitude,
     required this.allowedRadiusMeters,
+    required this.timezone,
   });
 
   final int id;
@@ -1051,6 +1052,7 @@ class StoreInfo {
   final double latitude;
   final double longitude;
   final int allowedRadiusMeters;
+  final String timezone;
 
   factory StoreInfo.fromJson(Map<String, dynamic> json) {
     return StoreInfo(
@@ -1060,6 +1062,7 @@ class StoreInfo {
       latitude: _readDouble(json['latitude']),
       longitude: _readDouble(json['longitude']),
       allowedRadiusMeters: _readInt(json['allowed_radius_meters'], fallback: 50),
+      timezone: json['timezone']?.toString() ?? 'America/Mexico_City',
     );
   }
 
@@ -1070,6 +1073,7 @@ class StoreInfo {
         'latitude': latitude,
         'longitude': longitude,
         'allowed_radius_meters': allowedRadiusMeters,
+        'timezone': timezone,
       };
 }
 

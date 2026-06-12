@@ -67,6 +67,11 @@ function ensure_runtime_schema(PDO $pdo): void
         $pdo->exec("ALTER TABLE stores ADD COLUMN chain VARCHAR(100) NULL AFTER id");
         $pdo->exec("CREATE INDEX idx_stores_chain_status ON stores (chain, status)");
     }
+    $column = $pdo->query("SHOW COLUMNS FROM stores LIKE 'timezone'")->fetch();
+    if (!$column) {
+        $pdo->exec("ALTER TABLE stores ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT 'America/Mexico_City' AFTER allowed_radius_meters");
+        $pdo->exec("CREATE INDEX idx_stores_timezone ON stores (timezone)");
+    }
     $column = $pdo->query("SHOW COLUMNS FROM users LIKE 'requires_location_verification'")->fetch();
     if (!$column) {
         $pdo->exec("ALTER TABLE users ADD COLUMN requires_location_verification TINYINT(1) NOT NULL DEFAULT 0 AFTER supervisor_id");
@@ -116,6 +121,113 @@ function body_json(): array
         response_json(['error' => 'JSON invalido'], 400);
     }
     return $data;
+}
+
+function decode_data_file(string $value): string
+{
+    if (strpos($value, ',') !== false) {
+        [, $value] = explode(',', $value, 2);
+    }
+    $bytes = base64_decode($value, true);
+    if ($bytes === false || strlen($bytes) < 10) {
+        response_json(['error' => 'Archivo invalido'], 400);
+    }
+    return $bytes;
+}
+
+function column_letters_to_index(string $letters): int
+{
+    $index = 0;
+    foreach (str_split(strtoupper($letters)) as $char) {
+        $index = $index * 26 + (ord($char) - 64);
+    }
+    return max(0, $index - 1);
+}
+
+function parse_xlsx_rows(string $fileBase64): array
+{
+    if (!class_exists('ZipArchive')) {
+        response_json(['error' => 'El servidor no tiene soporte ZipArchive para leer Excel. Sube CSV o activa ZipArchive en PHP.'], 500);
+    }
+    $tmp = tempnam(sys_get_temp_dir(), 'sealy_xlsx_');
+    if ($tmp === false) {
+        response_json(['error' => 'No se pudo preparar el archivo Excel'], 500);
+    }
+    file_put_contents($tmp, decode_data_file($fileBase64));
+    $zip = new ZipArchive();
+    if ($zip->open($tmp) !== true) {
+        @unlink($tmp);
+        response_json(['error' => 'No se pudo abrir el archivo Excel. Usa formato .xlsx'], 400);
+    }
+
+    $sharedStrings = [];
+    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+    if ($sharedXml !== false) {
+        $xml = @simplexml_load_string($sharedXml);
+        if ($xml) {
+            foreach ($xml->si as $si) {
+                if (isset($si->t)) {
+                    $sharedStrings[] = (string)$si->t;
+                } else {
+                    $text = '';
+                    foreach ($si->r as $run) {
+                        $text .= (string)$run->t;
+                    }
+                    $sharedStrings[] = $text;
+                }
+            }
+        }
+    }
+
+    $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    $zip->close();
+    @unlink($tmp);
+    if ($sheetXml === false) {
+        response_json(['error' => 'El Excel no contiene una hoja valida'], 400);
+    }
+    $xml = @simplexml_load_string($sheetXml);
+    if (!$xml || !isset($xml->sheetData)) {
+        response_json(['error' => 'No se pudo leer la hoja de Excel'], 400);
+    }
+    $rows = [];
+    foreach ($xml->sheetData->row as $rowXml) {
+        $row = [];
+        foreach ($rowXml->c as $cell) {
+            $ref = (string)$cell['r'];
+            preg_match('/^[A-Z]+/i', $ref, $match);
+            $index = column_letters_to_index($match[0] ?? 'A');
+            $type = (string)$cell['t'];
+            if ($type === 's') {
+                $value = $sharedStrings[(int)$cell->v] ?? '';
+            } elseif ($type === 'inlineStr') {
+                $value = (string)($cell->is->t ?? '');
+            } else {
+                $value = (string)($cell->v ?? '');
+            }
+            $row[$index] = trim($value);
+        }
+        if ($row) {
+            ksort($row);
+            $dense = [];
+            for ($i = 0, $max = max(array_keys($row)); $i <= $max; $i++) {
+                $dense[] = $row[$i] ?? '';
+            }
+            $rows[] = $dense;
+        }
+    }
+    return $rows;
+}
+
+function parse_csv_rows(string $csv): array
+{
+    $lines = preg_split('/\r\n|\r|\n/', trim($csv));
+    $rows = [];
+    foreach ($lines as $line) {
+        if (trim($line) !== '') {
+            $rows[] = str_getcsv($line);
+        }
+    }
+    return $rows;
 }
 
 function route_match(string $pattern, string $path): ?array
@@ -237,6 +349,100 @@ function require_status(?string $status): string
         response_json(['error' => 'Estado invalido'], 400);
     }
     return $status;
+}
+
+function timezone_options(): array
+{
+    return [
+        'CENTRO' => ['label' => 'Centro / Monterrey', 'timezone' => 'America/Mexico_City'],
+        'SONORA' => ['label' => 'Sonora / Hermosillo', 'timezone' => 'America/Hermosillo'],
+        'PACIFICO' => ['label' => 'Pacifico / Sinaloa / BCS', 'timezone' => 'America/Mazatlan'],
+        'BAJA' => ['label' => 'Baja California', 'timezone' => 'America/Tijuana'],
+        'CANCUN' => ['label' => 'Quintana Roo / Cancun', 'timezone' => 'America/Cancun'],
+    ];
+}
+
+function resolve_timezone(?string $value): ?string
+{
+    $value = strtoupper(trim((string)$value));
+    if ($value === '') {
+        return 'America/Mexico_City';
+    }
+    $aliases = [
+        'CDMX' => 'CENTRO',
+        'MEXICO' => 'CENTRO',
+        'MEXICO_CITY' => 'CENTRO',
+        'MONTERREY' => 'CENTRO',
+        'MTY' => 'CENTRO',
+        'GUADALAJARA' => 'CENTRO',
+        'GDL' => 'CENTRO',
+        'CENTRO' => 'CENTRO',
+        'HERMOSILLO' => 'SONORA',
+        'SONORA' => 'SONORA',
+        'PACIFICO' => 'PACIFICO',
+        'SINALOA' => 'PACIFICO',
+        'CULIACAN' => 'PACIFICO',
+        'MAZATLAN' => 'PACIFICO',
+        'BCS' => 'PACIFICO',
+        'LA_PAZ' => 'PACIFICO',
+        'BAJA' => 'BAJA',
+        'TIJUANA' => 'BAJA',
+        'MEXICALI' => 'BAJA',
+        'CANCUN' => 'CANCUN',
+        'QUINTANA_ROO' => 'CANCUN',
+    ];
+    $key = $aliases[$value] ?? $value;
+    $options = timezone_options();
+    if (isset($options[$key])) {
+        return $options[$key]['timezone'];
+    }
+    $iana = str_replace(' ', '_', trim((string)$value));
+    if (in_array($iana, timezone_identifiers_list(), true)) {
+        return $iana;
+    }
+    return null;
+}
+
+function normalize_timezone(?string $value): string
+{
+    $timezone = resolve_timezone($value);
+    if ($timezone) {
+        return $timezone;
+    }
+    response_json(['error' => 'Zona horaria invalida. Usa CENTRO, SONORA, PACIFICO, BAJA o CANCUN'], 400);
+}
+
+function timezone_label(?string $timezone): string
+{
+    $timezone = $timezone ?: 'America/Mexico_City';
+    foreach (timezone_options() as $key => $option) {
+        if ($option['timezone'] === $timezone) {
+            return $key . ' - ' . $option['label'];
+        }
+    }
+    return $timezone;
+}
+
+function parse_store_time(string $value, string $timezone): int
+{
+    $timezone = resolve_timezone($timezone) ?: 'America/Mexico_City';
+    $hasOffset = preg_match('/(Z|[+-]\d{2}:?\d{2})$/', $value) === 1;
+    try {
+        $date = $hasOffset
+            ? new DateTimeImmutable($value)
+            : new DateTimeImmutable($value, new DateTimeZone($timezone));
+        return $date->getTimestamp();
+    } catch (Throwable $e) {
+        return time();
+    }
+}
+
+function local_datetime(int $timestamp, string $timezone): string
+{
+    $timezone = resolve_timezone($timezone) ?: 'America/Mexico_City';
+    return (new DateTimeImmutable('@' . $timestamp))
+        ->setTimezone(new DateTimeZone($timezone))
+        ->format('Y-m-d H:i:s');
 }
 
 function can_manage_staff_user(PDO $pdo, array $user, int $targetId): array
@@ -642,22 +848,23 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
     $lat = (float)($data['latitude'] ?? 0);
     $lng = (float)($data['longitude'] ?? 0);
     $deviceId = (string)($data['device_id'] ?? '');
-    $captured = (string)($data['captured_at_device'] ?? date('c'));
-    $timestamp = strtotime($captured) ?: time();
-    $serverNow = time();
-    $timeDriftSeconds = abs($serverNow - $timestamp);
-    $futureDriftSeconds = $timestamp - $serverNow;
-    $capturedAt = date('Y-m-d H:i:s', $timestamp);
-    $checkedAt = $source === 'offline_sync' ? $capturedAt : date('Y-m-d H:i:s', $serverNow);
-    $checkDate = date('Y-m-d', strtotime($checkedAt));
-    $gpsAccuracy = isset($data['gps_accuracy_meters']) ? (float)$data['gps_accuracy_meters'] : null;
-    $gpsIsMocked = !empty($data['gps_is_mocked']);
 
     if (!$storeId || !$lat || !$lng) {
         response_json(['error' => 'Tienda, latitud y longitud son obligatorias'], 400);
     }
 
     $store = get_store($pdo, $storeId);
+    $storeTimezone = (string)($store['timezone'] ?? 'America/Mexico_City');
+    $captured = (string)($data['captured_at_device'] ?? local_datetime(time(), $storeTimezone));
+    $timestamp = parse_store_time($captured, $storeTimezone);
+    $serverNow = time();
+    $timeDriftSeconds = abs($serverNow - $timestamp);
+    $futureDriftSeconds = $timestamp - $serverNow;
+    $capturedAt = local_datetime($timestamp, $storeTimezone);
+    $checkedAt = $source === 'offline_sync' ? $capturedAt : local_datetime($serverNow, $storeTimezone);
+    $checkDate = date('Y-m-d', strtotime($checkedAt));
+    $gpsAccuracy = isset($data['gps_accuracy_meters']) ? (float)$data['gps_accuracy_meters'] : null;
+    $gpsIsMocked = !empty($data['gps_is_mocked']);
     try {
         validate_phase_sequence($pdo, (int)$user['id'], $phase, $checkDate, $storeId, $lat, $lng, $deviceId);
     } catch (RuntimeException $e) {
@@ -886,7 +1093,7 @@ try {
         require_role($user, ['staff']);
 
         $stmt = $pdo->prepare(
-            "SELECT s.id, s.chain, s.name, s.address, s.latitude, s.longitude, s.allowed_radius_meters
+            "SELECT s.id, s.chain, s.name, s.address, s.latitude, s.longitude, s.allowed_radius_meters, s.timezone
              FROM stores s
              WHERE s.status = 'active'
              ORDER BY s.chain ASC, s.name ASC"
@@ -897,7 +1104,7 @@ try {
         $stmt = $pdo->prepare(
             "SELECT id, store_id, phase, checked_at, distance_meters, status
              FROM check_records
-             WHERE user_id = ? AND check_date = CURDATE()
+             WHERE user_id = ? AND check_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
              ORDER BY checked_at ASC"
         );
         $stmt->execute([(int)$user['id']]);
@@ -1226,10 +1433,11 @@ try {
         if ($radius <= 0) {
             response_json(['error' => 'El radio debe ser mayor a cero'], 400);
         }
+        $timezone = normalize_timezone($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'CENTRO');
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
-            "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, timezone, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $chain,
@@ -1238,6 +1446,7 @@ try {
             $lat,
             $lng,
             $radius,
+            $timezone,
             $status,
         ]);
         response_json(['ok' => true, 'id' => (int)$pdo->lastInsertId()]);
@@ -1257,10 +1466,11 @@ try {
         if ($radius <= 0) {
             response_json(['error' => 'El radio debe ser mayor a cero'], 400);
         }
+        $timezone = normalize_timezone($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'CENTRO');
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "UPDATE stores
-             SET chain = ?, name = ?, address = ?, latitude = ?, longitude = ?, allowed_radius_meters = ?, status = ?
+             SET chain = ?, name = ?, address = ?, latitude = ?, longitude = ?, allowed_radius_meters = ?, timezone = ?, status = ?
              WHERE id = ?"
         );
         $stmt->execute([
@@ -1270,6 +1480,7 @@ try {
             $lat,
             $lng,
             $radius,
+            $timezone,
             $status,
             $id,
         ]);
@@ -1302,30 +1513,30 @@ try {
         require_role($user, ['admin', 'supervisor']);
         $data = body_json();
         $csv = trim((string)($data['csv'] ?? ''));
-        if ($csv === '') {
-            response_json(['error' => 'El CSV es obligatorio'], 400);
+        $fileBase64 = (string)($data['file_base64'] ?? '');
+        if ($csv === '' && $fileBase64 === '') {
+            response_json(['error' => 'Pega CSV o sube un archivo Excel .xlsx'], 400);
         }
-        $lines = preg_split('/\r\n|\r|\n/', $csv);
+        $rows = $fileBase64 !== '' ? parse_xlsx_rows($fileBase64) : parse_csv_rows($csv);
         $created = 0;
         $updated = 0;
         $skipped = 0;
         $errors = [];
         $stmtInsert = $pdo->prepare(
-            "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, status)
-             VALUES (?, ?, ?, ?, ?, ?, 'active')"
+            "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, timezone, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'active')"
         );
         $stmtUpdate = $pdo->prepare(
-            "UPDATE stores SET chain = ?, address = ?, latitude = ?, longitude = ?, allowed_radius_meters = ?, status = 'active'
+            "UPDATE stores SET chain = ?, address = ?, latitude = ?, longitude = ?, allowed_radius_meters = ?, timezone = ?, status = 'active'
              WHERE name = ?"
         );
         $header = null;
-        foreach ($lines as $i => $line) {
-            if (trim($line) === '') {
+        foreach ($rows as $i => $cols) {
+            if (!array_filter($cols, fn($value) => trim((string)$value) !== '')) {
                 continue;
             }
-            $cols = str_getcsv($line);
             if ($i === 0 && preg_match('/name|nombre|cadena/i', implode(',', $cols))) {
-                $header = array_map(fn($value) => strtolower(trim((string)$value)), $cols);
+                $header = array_map(fn($value) => strtolower(str_replace([' ', '-'], '_', trim((string)$value))), $cols);
                 continue;
             }
             if ($header) {
@@ -1339,14 +1550,16 @@ try {
                 $lat = (float)($row['latitud'] ?? $row['latitude'] ?? $row['lat'] ?? 0);
                 $lng = (float)($row['longitud'] ?? $row['longitude'] ?? $row['lng'] ?? $row['lon'] ?? 0);
                 $radius = (int)($row['radio'] ?? $row['radius'] ?? $row['allowed_radius_meters'] ?? 50);
+                $timezoneInput = trim((string)($row['zona_horaria'] ?? $row['horario'] ?? $row['timezone'] ?? $row['zona'] ?? 'CENTRO'));
             } elseif (count($cols) >= 6) {
-                [$chain, $name, $address, $lat, $lng, $radius] = [
+                [$chain, $name, $address, $lat, $lng, $radius, $timezoneInput] = [
                     trim((string)$cols[0]),
                     trim((string)$cols[1]),
                     trim((string)$cols[2]),
                     (float)$cols[3],
                     (float)$cols[4],
                     (int)$cols[5],
+                    trim((string)($cols[6] ?? 'CENTRO')),
                 ];
             } else {
                 $chain = '';
@@ -1355,6 +1568,7 @@ try {
                 $lat = (float)($cols[2] ?? 0);
                 $lng = (float)($cols[3] ?? 0);
                 $radius = (int)($cols[4] ?? 50);
+                $timezoneInput = trim((string)($cols[5] ?? 'CENTRO'));
             }
             if ($chain === '' || $name === '' || $address === '' || !$lat || !$lng || $radius <= 0) {
                 $skipped++;
@@ -1363,14 +1577,22 @@ try {
                 }
                 continue;
             }
+            $timezone = resolve_timezone($timezoneInput);
+            if (!$timezone) {
+                $skipped++;
+                if (count($errors) < 10) {
+                    $errors[] = 'Linea ' . ($i + 1) . ': zona horaria invalida';
+                }
+                continue;
+            }
             $radius = $radius > 0 ? $radius : 50;
             $exists = $pdo->prepare("SELECT id FROM stores WHERE name = ? LIMIT 1");
             $exists->execute([$name]);
             if ($exists->fetch()) {
-                $stmtUpdate->execute([$chain, $address, $lat, $lng, $radius, $name]);
+                $stmtUpdate->execute([$chain, $address, $lat, $lng, $radius, $timezone, $name]);
                 $updated++;
             } else {
-                $stmtInsert->execute([$chain, $name, $address, $lat, $lng, $radius]);
+                $stmtInsert->execute([$chain, $name, $address, $lat, $lng, $radius, $timezone]);
                 $created++;
             }
         }

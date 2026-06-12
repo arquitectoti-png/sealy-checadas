@@ -214,6 +214,7 @@
             <label>Latitud<input id="storeLat"></label>
             <label>Longitud<input id="storeLng"></label>
             <label>Radio metros<input id="storeRadius" value="50"></label>
+            <label>Zona horaria<select id="storeTimezone"></select></label>
             <label>Estado<select id="storeStatus"><option value="active">Activa</option><option value="inactive">Inactiva</option></select></label>
             <div class="actions">
               <button id="saveStoreBtn" class="btn">Guardar tienda</button>
@@ -223,8 +224,9 @@
         </div>
         <div class="card">
           <h2>Carga masiva de tiendas</h2>
-          <p class="small">Formato CSV: cadena,nombre,direccion,latitud,longitud,radio</p>
-          <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50</textarea>
+          <p class="small">Puedes subir Excel .xlsx o pegar CSV. Columnas: cadena,nombre,direccion,latitud,longitud,radio,zona_horaria. Zonas simples: CENTRO, SONORA, PACIFICO, BAJA, CANCUN.</p>
+          <label>Archivo Excel .xlsx<input id="storesFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+          <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50,CENTRO</textarea>
           <button id="importStoresBtn" class="btn">Cargar tiendas</button>
         </div>
       </section>
@@ -298,6 +300,13 @@
     let notices = [];
     let currentView = "dashboard";
     const $ = id => document.getElementById(id);
+    const timezoneOptions = [
+      ["America/Mexico_City", "CENTRO - Centro / Monterrey"],
+      ["America/Hermosillo", "SONORA - Hermosillo"],
+      ["America/Mazatlan", "PACIFICO - Sinaloa / BCS"],
+      ["America/Tijuana", "BAJA - Tijuana / Mexicali"],
+      ["America/Cancun", "CANCUN - Quintana Roo"]
+    ];
 
     $("apiUrl").value = "/api";
 
@@ -339,6 +348,10 @@
     function isAdmin() { return user && user.role === "admin"; }
     function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
     function statusBadge(status) { return `<span class="status ${status === "active" ? "ok" : "bad"}">${status === "active" ? "Activo" : "Inactivo"}</span>`; }
+    function timezoneLabel(value) {
+      const found = timezoneOptions.find(([key]) => key === value);
+      return found ? found[1] : (value || "CENTRO - Centro / Monterrey");
+    }
     function requiredValue(id, label) {
       const value = String($(id).value || "").trim();
       if (!value) throw new Error(`${label} es obligatorio`);
@@ -436,6 +449,7 @@
       $("reportEnd").value = today();
       $("checksStart").value = firstDay();
       $("checksEnd").value = today();
+      $("storeTimezone").innerHTML = timezoneOptions.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
       configureRoleUi();
       refreshAll();
     }
@@ -514,12 +528,13 @@
       $("assignmentTable").innerHTML = `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     function renderStores() {
-      $("storesTable").innerHTML = `<table><thead><tr><th>Cadena</th><th>Tienda</th><th>Coordenadas</th><th>Radio</th><th>Estado</th><th></th></tr></thead><tbody>${stores.map(s => `
+      $("storesTable").innerHTML = `<table><thead><tr><th>Cadena</th><th>Tienda</th><th>Coordenadas</th><th>Radio</th><th>Horario</th><th>Estado</th><th></th></tr></thead><tbody>${stores.map(s => `
         <tr>
           <td>${escapeHtml(s.chain || "-")}</td>
           <td>${escapeHtml(s.name)}<div class="small">${escapeHtml(s.address || "")}</div></td>
           <td>${s.latitude}, ${s.longitude}</td>
           <td>${s.allowed_radius_meters} m</td>
+          <td>${escapeHtml(timezoneLabel(s.timezone))}</td>
           <td>${statusBadge(s.status)}</td>
           <td class="actions">
             <button class="btn secondary" onclick="editStore(${s.id})">Editar</button>
@@ -602,6 +617,7 @@
       $("storeFormTitle").textContent = "Modificar tienda";
       $("storeId").value = s.id; $("storeChain").value = s.chain || ""; $("storeName").value = s.name || ""; $("storeAddress").value = s.address || "";
       $("storeLat").value = s.latitude; $("storeLng").value = s.longitude; $("storeRadius").value = s.allowed_radius_meters || 50; $("storeStatus").value = s.status;
+      $("storeTimezone").value = s.timezone || "America/Mexico_City";
     };
     window.deleteStore = async id => {
       if (!confirm("¿Eliminar/desactivar tienda?")) return;
@@ -618,6 +634,7 @@
         latitude: requiredNumber("storeLat", "La latitud"),
         longitude: requiredNumber("storeLng", "La longitud"),
         allowed_radius_meters: requiredNumber("storeRadius", "El radio"),
+        timezone: $("storeTimezone").value,
         status: $("storeStatus").value
       };
       if (body.allowed_radius_meters <= 0) throw new Error("El radio debe ser mayor a cero");
@@ -627,12 +644,21 @@
     function resetStoreForm() {
       $("storeFormTitle").textContent = "Agregar tienda";
       ["storeId","storeChain","storeName","storeAddress","storeLat","storeLng"].forEach(id => $(id).value = "");
-      $("storeRadius").value = "50"; $("storeStatus").value = "active";
+      $("storeRadius").value = "50"; $("storeTimezone").value = "America/Mexico_City"; $("storeStatus").value = "active";
     }
     async function importStores() {
-      const data = await request("/admin/stores/import-csv", { method: "POST", body: JSON.stringify({ csv: $("storesCsv").value }) });
+      const file = $("storesFile").files[0] || null;
+      const data = await request("/admin/stores/import-csv", {
+        method: "POST",
+        body: JSON.stringify({
+          csv: $("storesCsv").value,
+          file_name: file ? file.name : null,
+          file_base64: await fileToBase64(file)
+        })
+      });
       const detail = data.errors && data.errors.length ? `\n\nPrimeros errores:\n${data.errors.join("\n")}` : "";
       alert(`Carga terminada. Creadas: ${data.created}. Actualizadas: ${data.updated}. Omitidas: ${data.skipped || 0}.${detail}`);
+      $("storesFile").value = "";
       await loadStores();
     }
     async function importUsers() {
