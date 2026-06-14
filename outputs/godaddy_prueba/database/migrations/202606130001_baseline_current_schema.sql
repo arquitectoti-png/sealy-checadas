@@ -1,0 +1,4 @@
+-- Baseline marker.
+-- This file intentionally does not change data or structure.
+-- It marks the start of versioned migrations for databases already created with
+-- database/staraz_site_bd_completa.sql or api/install_initial.php.

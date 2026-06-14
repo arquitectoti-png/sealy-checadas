@@ -5,6 +5,7 @@ Este paquete contiene la version inicial de uso para GoDaddy:
 - `api/`: backend PHP REST para MySQL.
 - `admin/`: panel web para administrador y supervisores.
 - `database/staraz_site_bd_completa.sql`: esquema inicial final para phpMyAdmin.
+- `database/migrations/`: cambios versionados para actualizar tablas sin borrar datos.
 
 La app movil nativa Flutter usa la API. La app nunca se conecta directo a MySQL.
 
@@ -24,9 +25,11 @@ Sube las carpetas asi:
 public_html/
   api/
   admin/
+  database/
 ```
 
-El archivo SQL puedes importarlo desde phpMyAdmin. No es necesario dejar la carpeta `database/` en `public_html`.
+El archivo SQL puedes importarlo desde phpMyAdmin. Para actualizaciones futuras, conserva tambien `database/migrations/`.
+La carpeta `database/` trae `.htaccess` para bloquear acceso web directo.
 
 URLs esperadas:
 
@@ -79,6 +82,7 @@ return [
 'token_ttl_days' => 30,
 'upload_dir' => __DIR__ . '/sealy_uploads',
 'setup_key' => 'CAMBIA_ESTA_CLAVE',
+'allow_destructive_migrations' => false,
 ];
 ```
 
@@ -107,6 +111,45 @@ Opcion por phpMyAdmin:
 ```text
 database/staraz_site_bd_completa.sql
 ```
+
+## 3.1. Actualizaciones futuras de base de datos sin perder datos
+
+Cuando el sistema ya este en uso, no vuelvas a importar `staraz_site_bd_completa.sql` sobre una base productiva, porque eso es solo para instalaciones nuevas.
+
+Para cambios futuros de tablas usa:
+
+```text
+https://staraz.site/api/migrate.php?key=CAMBIA_ESTA_CLAVE
+```
+
+Para revisar que migraciones faltan sin aplicar nada:
+
+```text
+https://staraz.site/api/migrate.php?key=CAMBIA_ESTA_CLAVE&dry_run=1
+```
+
+El actualizador crea y usa la tabla:
+
+```text
+schema_migrations
+```
+
+Asi cada cambio se ejecuta una sola vez por base de datos.
+
+Regla importante:
+
+- Proyectos nuevos: usa `install_initial.php` o importa el SQL inicial.
+- Proyectos existentes con datos: usa `migrate.php`.
+- Antes de cualquier cambio productivo: haz respaldo desde cPanel/phpMyAdmin.
+- Las migraciones destructivas (`DROP TABLE`, `TRUNCATE`, `DROP COLUMN`) estan bloqueadas por default.
+
+Si alguna vez se requiere una migracion destructiva, primero haz respaldo y habilita temporalmente en config:
+
+```php
+'allow_destructive_migrations' => true,
+```
+
+Despues vuelve a dejarlo en `false`.
 
 ## 4. Usuarios iniciales
 
@@ -138,16 +181,18 @@ promotor1@staraz.site
 promotor30@staraz.site
 ```
 
-Los promotores 1-10 quedan con Supervisor 1, 11-20 con Supervisor 2 y 21-30 con Supervisor 3.
+Los supervisores pueden ver todos los promotores. La referencia de supervisor queda solo para filtros historicos.
 
 ## 5. Tiendas
 
-No se cargan sucursales de ejemplo. En el panel web entra a `Tiendas` y carga masivamente tiendas reales con CSV:
+No se cargan sucursales de ejemplo. En el panel web entra a `Tiendas` y carga masivamente tiendas reales con Excel o CSV:
 
 ```text
-cadena,nombre,direccion,latitud,longitud,radio
-Coppel,Sucursal Norte,Av ejemplo 123,19.432608,-99.133209,50
+cadena,nombre,direccion,latitud,longitud,radio,zona_horaria
+Coppel,Sucursal Norte,Av ejemplo 123,19.432608,-99.133209,50,AUTO
 ```
+
+Recomendado: usa `AUTO` para que el sistema calcule la zona horaria por coordenadas.
 
 Una tienda nueva aparece en la app movil despues de que el promotor actualiza/sincroniza con internet.
 

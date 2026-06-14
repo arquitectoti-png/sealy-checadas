@@ -47,6 +47,7 @@ $schema = [
       password_hash VARCHAR(255) NOT NULL,
       role ENUM('admin', 'supervisor', 'staff') NOT NULL DEFAULT 'staff',
       supervisor_id BIGINT UNSIGNED NULL,
+      requires_location_verification TINYINT(1) NOT NULL DEFAULT 0,
       status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -62,12 +63,14 @@ $schema = [
       latitude DECIMAL(10, 7) NOT NULL,
       longitude DECIMAL(10, 7) NOT NULL,
       allowed_radius_meters INT UNSIGNED NOT NULL DEFAULT 50,
+      timezone VARCHAR(64) NOT NULL DEFAULT 'America/Mexico_City',
       status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uq_store_name (name),
       INDEX idx_stores_status (status),
-      INDEX idx_stores_chain_status (chain, status)
+      INDEX idx_stores_chain_status (chain, status),
+      INDEX idx_stores_timezone (timezone)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
     "CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -84,7 +87,8 @@ $schema = [
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id BIGINT UNSIGNED NOT NULL,
       store_id BIGINT UNSIGNED NOT NULL,
-      phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida') NOT NULL,
+      phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                 'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL,
       check_date DATE NOT NULL,
       checked_at DATETIME NOT NULL,
       captured_at_device DATETIME NULL,
@@ -110,7 +114,8 @@ $schema = [
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id BIGINT UNSIGNED NOT NULL,
       store_id BIGINT UNSIGNED NULL,
-      phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida') NOT NULL,
+      phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                 'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL,
       attempted_at DATETIME NOT NULL,
       latitude DECIMAL(10, 7) NULL,
       longitude DECIMAL(10, 7) NULL,
@@ -120,6 +125,26 @@ $schema = [
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_attempt_user_date (user_id, attempted_at),
       INDEX idx_attempt_reason (reason)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "CREATE TABLE IF NOT EXISTS notices (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      title VARCHAR(160) NOT NULL,
+      body TEXT NULL,
+      image_path VARCHAR(255) NULL,
+      status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+      created_by BIGINT UNSIGNED NOT NULL,
+      published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_notices_status_date (status, published_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "CREATE TABLE IF NOT EXISTS schema_migrations (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      migration VARCHAR(190) NOT NULL UNIQUE,
+      checksum CHAR(64) NOT NULL,
+      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
 ];
 
@@ -130,6 +155,34 @@ foreach ($schema as $statement) {
 if (!$pdo->query("SHOW COLUMNS FROM stores LIKE 'chain'")->fetch()) {
     $pdo->exec("ALTER TABLE stores ADD COLUMN chain VARCHAR(100) NULL AFTER id");
     $pdo->exec("CREATE INDEX idx_stores_chain_status ON stores (chain, status)");
+}
+if (!$pdo->query("SHOW COLUMNS FROM stores LIKE 'timezone'")->fetch()) {
+    $pdo->exec("ALTER TABLE stores ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT 'America/Mexico_City' AFTER allowed_radius_meters");
+    $pdo->exec("CREATE INDEX idx_stores_timezone ON stores (timezone)");
+}
+if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'requires_location_verification'")->fetch()) {
+    $pdo->exec("ALTER TABLE users ADD COLUMN requires_location_verification TINYINT(1) NOT NULL DEFAULT 0 AFTER supervisor_id");
+    $pdo->exec("CREATE INDEX idx_users_location_verification ON users (requires_location_verification)");
+}
+$pdo->exec(
+    "ALTER TABLE check_records
+     MODIFY phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                       'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL"
+);
+$pdo->exec(
+    "ALTER TABLE check_attempts
+     MODIFY phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
+                       'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL"
+);
+
+$baseline = dirname(__DIR__) . '/database/migrations/202606130001_baseline_current_schema.sql';
+if (is_file($baseline)) {
+    $stmt = $pdo->prepare(
+        "INSERT INTO schema_migrations (migration, checksum)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE checksum = VALUES(checksum)"
+    );
+    $stmt->execute([basename($baseline), hash_file('sha256', $baseline)]);
 }
 
 $pdo->exec("DROP TABLE IF EXISTS user_store_assignments");
@@ -189,10 +242,10 @@ if (!is_dir($config['upload_dir'])) {
 echo json_encode([
     'ok' => true,
     'message' => 'Initial production database installed',
-    'rule' => 'Promoters are assigned only to supervisors. Stores are global active locations selected by nearest GPS within 50m.',
+    'rule' => 'Stores are global active locations selected by nearest GPS within 50m. Supervisors can see all promoters.',
     'admin' => 'admin@staraz.site',
     'supervisors' => ['supervisor1@staraz.site', 'supervisor2@staraz.site', 'supervisor3@staraz.site'],
     'promoters' => 'promotor1@staraz.site ... promotor30@staraz.site',
     'initial_password' => $initialPassword,
-    'next_step' => 'Delete or rename api/install_initial.php after setup'
+    'next_step' => 'Delete or rename api/install_initial.php after setup. Future DB changes should use api/migrate.php.'
 ], JSON_UNESCAPED_SLASHES);
