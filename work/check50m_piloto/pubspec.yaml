@@ -10,9 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: any
+  camera: any
   http: any
   geolocator: any
-  image_picker: any
   shared_preferences: any
 
 dev_dependencies:

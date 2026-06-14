@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const defaultApiBaseUrl = 'http://staraz.site/api';
@@ -45,7 +45,6 @@ class _AppShellState extends State<AppShell> {
   final _passwordController = TextEditingController();
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
-  final _picker = ImagePicker();
 
   SharedPreferences? _prefs;
   String? _token;
@@ -274,12 +273,7 @@ class _AppShellState extends State<AppShell> {
         return;
       }
 
-      final image = await _picker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.front,
-        imageQuality: 55,
-        maxWidth: 720,
-      );
+      final image = await _captureFrontCameraPhoto();
       if (image == null) {
         throw ApiException('La foto es obligatoria.', 400);
       }
@@ -459,6 +453,12 @@ class _AppShellState extends State<AppShell> {
         accuracy: LocationAccuracy.high,
         timeLimit: Duration(seconds: 20),
       ),
+    );
+  }
+
+  Future<XFile?> _captureFrontCameraPhoto() {
+    return Navigator.of(context).push<XFile>(
+      MaterialPageRoute(builder: (_) => const FrontCameraCapturePage()),
     );
   }
 
@@ -1008,6 +1008,148 @@ class _InfoCard extends StatelessWidget {
             child,
           ],
         ),
+      ),
+    );
+  }
+}
+
+class FrontCameraCapturePage extends StatefulWidget {
+  const FrontCameraCapturePage({super.key});
+
+  @override
+  State<FrontCameraCapturePage> createState() => _FrontCameraCapturePageState();
+}
+
+class _FrontCameraCapturePageState extends State<FrontCameraCapturePage> {
+  CameraController? _controller;
+  Future<void>? _initializeFuture;
+  String? _error;
+  bool _capturing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeFuture = _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      CameraDescription? frontCamera;
+      for (final camera in cameras) {
+        if (camera.lensDirection == CameraLensDirection.front) {
+          frontCamera = camera;
+          break;
+        }
+      }
+      if (frontCamera == null) {
+        throw ApiException('Este equipo no reporta una cámara frontal disponible.', 400);
+      }
+
+      final controller = CameraController(
+        frontCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+      await controller.initialize();
+      await controller.setFlashMode(FlashMode.off);
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+    } catch (err) {
+      if (mounted) {
+        setState(() => _error = err.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || _capturing) {
+      return;
+    }
+    setState(() => _capturing = true);
+    try {
+      final photo = await controller.takePicture();
+      if (mounted) {
+        Navigator.of(context).pop(photo);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _capturing = false;
+          _error = 'No se pudo tomar la foto. Intenta de nuevo.';
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Selfie de checada')),
+      body: FutureBuilder<void>(
+        future: _initializeFuture,
+        builder: (context, snapshot) {
+          final controller = _controller;
+          if (_error != null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline, size: 48),
+                    const SizedBox(height: 12),
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Regresar'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          if (snapshot.connectionState != ConnectionState.done ||
+              controller == null ||
+              !controller.value.isInitialized) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: AspectRatio(
+                  aspectRatio: controller.value.aspectRatio,
+                  child: CameraPreview(controller),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: SafeArea(
+                  minimum: const EdgeInsets.all(24),
+                  child: FilledButton.icon(
+                    onPressed: _capturing ? null : _takePhoto,
+                    icon: const Icon(Icons.camera_alt),
+                    label: Text(_capturing ? 'Tomando foto...' : 'Tomar selfie'),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
