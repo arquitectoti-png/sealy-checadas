@@ -354,19 +354,67 @@ function require_status(?string $status): string
 function timezone_options(): array
 {
     return [
+        'AUTO' => ['label' => 'Automatico por coordenadas', 'timezone' => 'AUTO'],
         'CENTRO' => ['label' => 'Centro / Monterrey', 'timezone' => 'America/Mexico_City'],
         'SONORA' => ['label' => 'Sonora / Hermosillo', 'timezone' => 'America/Hermosillo'],
         'PACIFICO' => ['label' => 'Pacifico / Sinaloa / BCS', 'timezone' => 'America/Mazatlan'],
         'BAJA' => ['label' => 'Baja California', 'timezone' => 'America/Tijuana'],
         'CANCUN' => ['label' => 'Quintana Roo / Cancun', 'timezone' => 'America/Cancun'],
+        'FRONTERA_CENTRO' => ['label' => 'Frontera norte centro', 'timezone' => 'America/Matamoros'],
+        'FRONTERA_CHIHUAHUA' => ['label' => 'Frontera Chihuahua', 'timezone' => 'America/Ojinaga'],
     ];
+}
+
+function first_available_timezone(array $candidates, string $fallback): string
+{
+    $available = timezone_identifiers_list();
+    foreach ($candidates as $candidate) {
+        if (in_array($candidate, $available, true)) {
+            return $candidate;
+        }
+    }
+    return $fallback;
+}
+
+function infer_timezone_from_coordinates(float $lat, float $lng): string
+{
+    // Baja California uses US Pacific DST rules statewide.
+    if ($lat >= 27.5 && $lat <= 33.5 && $lng >= -118.6 && $lng <= -114.0) {
+        return 'America/Tijuana';
+    }
+
+    // Northern border municipalities with US DST alignment. This is an approximation
+    // by coordinate band because the upload only includes latitude/longitude.
+    if ($lat >= 30.8 && $lat <= 32.2 && $lng >= -109.5 && $lng < -106.0) {
+        return first_available_timezone(['America/Ciudad_Juarez', 'America/Ojinaga'], 'America/Ojinaga');
+    }
+    if ($lat >= 27.0 && $lat <= 29.9 && $lng >= -106.0 && $lng <= -96.5) {
+        return first_available_timezone(['America/Matamoros', 'America/Ojinaga'], 'America/Matamoros');
+    }
+
+    // Quintana Roo stays on Eastern time without DST.
+    if ($lat >= 17.5 && $lat <= 22.0 && $lng >= -89.8 && $lng <= -86.5) {
+        return 'America/Cancun';
+    }
+
+    // Sonora does not observe DST.
+    if ($lat >= 26.0 && $lat <= 33.4 && $lng >= -115.5 && $lng <= -108.2) {
+        return 'America/Hermosillo';
+    }
+
+    // Pacific zone: Baja California Sur, Sinaloa, Nayarit and nearby.
+    if ($lat >= 21.0 && $lat <= 28.5 && $lng >= -115.5 && $lng <= -104.0) {
+        return 'America/Mazatlan';
+    }
+
+    return 'America/Mexico_City';
 }
 
 function resolve_timezone(?string $value): ?string
 {
     $value = strtoupper(trim((string)$value));
-    if ($value === '') {
-        return 'America/Mexico_City';
+    if ($value === '' || $value === 'AUTO' || $value === 'AUTOMATICO') {
+        return null;
     }
     $aliases = [
         'CDMX' => 'CENTRO',
@@ -377,6 +425,8 @@ function resolve_timezone(?string $value): ?string
         'GUADALAJARA' => 'CENTRO',
         'GDL' => 'CENTRO',
         'CENTRO' => 'CENTRO',
+        'AUTO' => 'AUTO',
+        'AUTOMATICO' => 'AUTO',
         'HERMOSILLO' => 'SONORA',
         'SONORA' => 'SONORA',
         'PACIFICO' => 'PACIFICO',
@@ -390,8 +440,22 @@ function resolve_timezone(?string $value): ?string
         'MEXICALI' => 'BAJA',
         'CANCUN' => 'CANCUN',
         'QUINTANA_ROO' => 'CANCUN',
+        'FRONTERA' => 'FRONTERA_CENTRO',
+        'FRONTERA_CENTRO' => 'FRONTERA_CENTRO',
+        'FRONTERA_CHIHUAHUA' => 'FRONTERA_CHIHUAHUA',
+        'JUAREZ' => 'FRONTERA_CHIHUAHUA',
+        'CD_JUAREZ' => 'FRONTERA_CHIHUAHUA',
+        'CIUDAD_JUAREZ' => 'FRONTERA_CHIHUAHUA',
+        'OJINAGA' => 'FRONTERA_CHIHUAHUA',
+        'REYNOSA' => 'FRONTERA_CENTRO',
+        'MATAMOROS' => 'FRONTERA_CENTRO',
+        'NUEVO_LAREDO' => 'FRONTERA_CENTRO',
+        'PIEDRAS_NEGRAS' => 'FRONTERA_CENTRO',
     ];
     $key = $aliases[$value] ?? $value;
+    if ($key === 'AUTO') {
+        return null;
+    }
     $options = timezone_options();
     if (isset($options[$key])) {
         return $options[$key]['timezone'];
@@ -410,6 +474,12 @@ function normalize_timezone(?string $value): string
         return $timezone;
     }
     response_json(['error' => 'Zona horaria invalida. Usa CENTRO, SONORA, PACIFICO, BAJA o CANCUN'], 400);
+}
+
+function timezone_for_store(?string $value, float $lat, float $lng): string
+{
+    $timezone = resolve_timezone($value);
+    return $timezone ?: infer_timezone_from_coordinates($lat, $lng);
 }
 
 function timezone_label(?string $timezone): string
@@ -1433,7 +1503,7 @@ try {
         if ($radius <= 0) {
             response_json(['error' => 'El radio debe ser mayor a cero'], 400);
         }
-        $timezone = normalize_timezone($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'CENTRO');
+        $timezone = timezone_for_store($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'AUTO', $lat, $lng);
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "INSERT INTO stores (chain, name, address, latitude, longitude, allowed_radius_meters, timezone, status)
@@ -1466,7 +1536,7 @@ try {
         if ($radius <= 0) {
             response_json(['error' => 'El radio debe ser mayor a cero'], 400);
         }
-        $timezone = normalize_timezone($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'CENTRO');
+        $timezone = timezone_for_store($data['timezone'] ?? $data['zona_horaria'] ?? $data['horario'] ?? 'AUTO', $lat, $lng);
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "UPDATE stores
@@ -1550,7 +1620,7 @@ try {
                 $lat = (float)($row['latitud'] ?? $row['latitude'] ?? $row['lat'] ?? 0);
                 $lng = (float)($row['longitud'] ?? $row['longitude'] ?? $row['lng'] ?? $row['lon'] ?? 0);
                 $radius = (int)($row['radio'] ?? $row['radius'] ?? $row['allowed_radius_meters'] ?? 50);
-                $timezoneInput = trim((string)($row['zona_horaria'] ?? $row['horario'] ?? $row['timezone'] ?? $row['zona'] ?? 'CENTRO'));
+                $timezoneInput = trim((string)($row['zona_horaria'] ?? $row['horario'] ?? $row['timezone'] ?? $row['zona'] ?? 'AUTO'));
             } elseif (count($cols) >= 6) {
                 [$chain, $name, $address, $lat, $lng, $radius, $timezoneInput] = [
                     trim((string)$cols[0]),
@@ -1559,7 +1629,7 @@ try {
                     (float)$cols[3],
                     (float)$cols[4],
                     (int)$cols[5],
-                    trim((string)($cols[6] ?? 'CENTRO')),
+                    trim((string)($cols[6] ?? 'AUTO')),
                 ];
             } else {
                 $chain = '';
@@ -1568,7 +1638,7 @@ try {
                 $lat = (float)($cols[2] ?? 0);
                 $lng = (float)($cols[3] ?? 0);
                 $radius = (int)($cols[4] ?? 50);
-                $timezoneInput = trim((string)($cols[5] ?? 'CENTRO'));
+                $timezoneInput = trim((string)($cols[5] ?? 'AUTO'));
             }
             if ($chain === '' || $name === '' || $address === '' || !$lat || !$lng || $radius <= 0) {
                 $skipped++;
@@ -1577,7 +1647,9 @@ try {
                 }
                 continue;
             }
-            $timezone = resolve_timezone($timezoneInput);
+            $timezone = $timezoneInput === '' || strtoupper($timezoneInput) === 'AUTO' || strtoupper($timezoneInput) === 'AUTOMATICO'
+                ? infer_timezone_from_coordinates((float)$lat, (float)$lng)
+                : resolve_timezone($timezoneInput);
             if (!$timezone) {
                 $skipped++;
                 if (count($errors) < 10) {
