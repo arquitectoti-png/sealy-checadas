@@ -305,12 +305,22 @@ class _AppShellState extends State<AppShell> {
         return;
       }
 
-      final data = await _request(
-        '/checks',
-        method: 'POST',
-        body: pending.toApiJson(),
-        allow422: true,
-      );
+      Map<String, dynamic> data;
+      try {
+        data = await _request(
+          '/checks',
+          method: 'POST',
+          body: pending.toApiJson(),
+          allow422: true,
+        );
+      } on ApiException catch (err) {
+        if (err.statusCode == 0) {
+          await _addToQueue(pending);
+          _checkMessage = 'Checada guardada offline. Pendiente de sincronizar.';
+          return;
+        }
+        rethrow;
+      }
 
       if (data['status'] == 'blocked_out_of_range') {
         _checkMessage =
