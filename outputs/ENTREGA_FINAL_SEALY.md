@@ -10,16 +10,16 @@ Fecha: 2026-06-17
 ## Rutas esperadas en servidor
 
 ```text
-public_html/admin/
-public_html/api/
-public_html/database/
+public_html/sealy/admin/
+public_html/sealy/api/
+public_html/sealy/database/
 ```
 
 URLs:
 
 ```text
-https://staraz.site/admin/
-https://staraz.site/api/
+https://staraz.site/sealy/admin/
+https://staraz.site/sealy/api/
 ```
 
 ## Configuracion privada recomendada
@@ -52,13 +52,13 @@ return [
 Ejecutar una sola vez:
 
 ```text
-https://staraz.site/api/install_initial.php?key=TU_CLAVE_SEGURA
+https://staraz.site/sealy/api/install_initial.php?key=TU_CLAVE_SEGURA
 ```
 
 Al terminar correctamente, eliminar o renombrar:
 
 ```text
-public_html/api/install_initial.php
+public_html/sealy/api/install_initial.php
 ```
 
 ## Usuarios iniciales
@@ -81,7 +81,7 @@ promotor1@staraz.site ... promotor30@staraz.site
 
 ## Validacion local realizada
 
-- App movil configurada con `https://staraz.site/api`.
+- App movil configurada con `https://staraz.site/sealy/api`.
 - `flutter analyze`: sin errores.
 - `flutter build apk --release`: correcto.
 - APK release generada correctamente.

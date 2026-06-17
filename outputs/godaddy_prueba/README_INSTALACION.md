@@ -23,9 +23,10 @@ Sube las carpetas asi:
 
 ```text
 public_html/
-  api/
-  admin/
-  database/
+  sealy/
+    api/
+    admin/
+    database/
 ```
 
 El archivo SQL puedes importarlo desde phpMyAdmin. Para actualizaciones futuras, conserva tambien `database/migrations/`.
@@ -34,14 +35,14 @@ La carpeta `database/` trae `.htaccess` para bloquear acceso web directo.
 URLs esperadas:
 
 ```text
-https://staraz.site/api/
-https://staraz.site/admin/
+https://staraz.site/sealy/api/
+https://staraz.site/sealy/admin/
 ```
 
 Produccion debe operar siempre con HTTPS. La APK final queda configurada para conectarse a:
 
 ```text
-https://staraz.site/api
+https://staraz.site/sealy/api
 ```
 
 ## 1. Crear base de datos MySQL
@@ -68,7 +69,7 @@ Ejemplo de ubicacion:
 
 ```text
 /home/USUARIO_CPANEL/sealy_config.php
-/home/USUARIO_CPANEL/public_html/api/
+/home/USUARIO_CPANEL/public_html/sealy/api/
 ```
 
 La API busca primero `sealy_config.php`. Si no existe, tambien acepta `check50m_config.php` para compatibilidad y luego `api/config.php` como alternativa.
@@ -105,7 +106,7 @@ El paquete trae `.htaccess` para bloquear descarga de `config.php`, pero la opci
 Opcion recomendada con instalador PHP:
 
 ```text
-https://staraz.site/api/install_initial.php?key=CAMBIA_ESTA_CLAVE
+https://staraz.site/sealy/api/install_initial.php?key=CAMBIA_ESTA_CLAVE
 ```
 
 Si todo sale bien, veras un JSON con `ok: true`.
@@ -125,13 +126,13 @@ Cuando el sistema ya este en uso, no vuelvas a importar `staraz_site_bd_completa
 Para cambios futuros de tablas usa:
 
 ```text
-https://staraz.site/api/migrate.php?key=CAMBIA_ESTA_CLAVE
+https://staraz.site/sealy/api/migrate.php?key=CAMBIA_ESTA_CLAVE
 ```
 
 Para revisar que migraciones faltan sin aplicar nada:
 
 ```text
-https://staraz.site/api/migrate.php?key=CAMBIA_ESTA_CLAVE&dry_run=1
+https://staraz.site/sealy/api/migrate.php?key=CAMBIA_ESTA_CLAVE&dry_run=1
 ```
 
 El actualizador crea y usa la tabla:

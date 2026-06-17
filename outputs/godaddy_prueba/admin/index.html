@@ -84,7 +84,7 @@
       <h1>Sealy Admin</h1>
       <img class="login-logo" src="./assets/sealy.png" alt="Sealy">
       <p class="subtitle">Supervisores y administradores.</p>
-      <input id="apiUrl" type="hidden" value="/api">
+      <input id="apiUrl" type="hidden" value="/sealy/api">
       <label>Usuario<input id="login"></label>
       <label>Contrasena<input id="password" type="password"></label>
       <button id="loginBtn" class="btn">Ingresar</button>
@@ -316,7 +316,7 @@
       ["America/Cancun", "CANCUN - Quintana Roo"]
     ];
 
-    $("apiUrl").value = "/api";
+    $("apiUrl").value = "/sealy/api";
 
     function apiBase() { return $("apiUrl").value.replace(/\/+$/, ""); }
     async function request(path, options = {}) {

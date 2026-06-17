@@ -6,6 +6,8 @@ date_default_timezone_set('America/Mexico_City');
 
 $configCandidates = array_filter([
     getenv('CHECK50M_CONFIG') ?: null,
+    dirname(__DIR__, 3) . '/sealy_config.php',
+    dirname(__DIR__, 3) . '/check50m_config.php',
     dirname(__DIR__, 2) . '/sealy_config.php',
     dirname(__DIR__, 2) . '/check50m_config.php',
     __DIR__ . '/config.php',
