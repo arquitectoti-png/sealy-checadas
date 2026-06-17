@@ -38,6 +38,12 @@ https://staraz.site/api/
 https://staraz.site/admin/
 ```
 
+Produccion debe operar siempre con HTTPS. La APK final queda configurada para conectarse a:
+
+```text
+https://staraz.site/api
+```
+
 ## 1. Crear base de datos MySQL
 
 En cPanel/GoDaddy:
@@ -204,6 +210,8 @@ Una tienda nueva aparece en la app movil despues de que el promotor actualiza/si
 4. Actualiza tiendas con internet.
 5. Checa dentro del radio de una tienda.
 6. Si queda alguna checada pendiente por falla de red, entra a `Sync` cuando vuelva el internet y presiona `Sincronizar ahora`.
+
+La APK de produccion debe ser la generada con HTTPS. Si el dominio o subruta cambia, recompila la app cambiando `defaultApiBaseUrl`.
 
 ## 7. APK y Play Store
 
