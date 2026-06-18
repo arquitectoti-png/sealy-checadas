@@ -190,7 +190,19 @@ promotor30@staraz.site
 
 Los supervisores pueden ver todos los promotores. La referencia de supervisor queda solo para filtros historicos.
 
-## 5. Tiendas
+## 5. Usuarios y RFC
+
+El RFC es obligatorio para promotores y usuarios nuevos. Se usa para busqueda e historico cuando hay nombres repetidos, bajas o rotacion.
+
+En carga masiva de promotores usa el layout Excel actualizado con estas columnas:
+
+```text
+nombre,email,numero_empleado,rfc,telefono,supervisor,contrasena
+```
+
+Los usuarios no se eliminan fisicamente desde el panel; se inactivan para conservar historico de checadas.
+
+## 6. Tiendas
 
 No se cargan sucursales de ejemplo. En el panel web entra a `Tiendas` y carga masivamente tiendas reales con Excel o CSV:
 
@@ -203,7 +215,7 @@ Recomendado: usa `AUTO` para que el sistema calcule la zona horaria por coordena
 
 Una tienda nueva aparece en la app movil despues de que el promotor actualiza/sincroniza con internet.
 
-## 6. Prueba app movil
+## 7. Prueba app movil
 
 1. Instala la APK en el telefono del promotor.
 2. Ingresa con un promotor activo creado en el panel.
@@ -214,7 +226,7 @@ Una tienda nueva aparece en la app movil despues de que el promotor actualiza/si
 
 La APK de produccion debe ser la generada con HTTPS. Si el dominio o subruta cambia, recompila la app cambiando `defaultApiBaseUrl`.
 
-## 7. APK y Play Store
+## 8. APK y Play Store
 
 Para uso interno de validacion se genera APK. Para Google Play se debe generar un `.aab` firmado:
 

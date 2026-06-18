@@ -46,6 +46,7 @@ $schema = [
       email VARCHAR(190) NULL UNIQUE,
       phone VARCHAR(40) NULL,
       employee_number VARCHAR(60) NULL UNIQUE,
+      rfc VARCHAR(13) NOT NULL,
       password_hash VARCHAR(255) NOT NULL,
       role ENUM('admin', 'supervisor', 'staff') NOT NULL DEFAULT 'staff',
       supervisor_id BIGINT UNSIGNED NULL,
@@ -54,7 +55,8 @@ $schema = [
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_users_role (role),
-      INDEX idx_users_supervisor (supervisor_id)
+      INDEX idx_users_supervisor (supervisor_id),
+      INDEX idx_users_rfc (rfc)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
     "CREATE TABLE IF NOT EXISTS stores (
@@ -166,6 +168,12 @@ if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'requires_location_verification'"
     $pdo->exec("ALTER TABLE users ADD COLUMN requires_location_verification TINYINT(1) NOT NULL DEFAULT 0 AFTER supervisor_id");
     $pdo->exec("CREATE INDEX idx_users_location_verification ON users (requires_location_verification)");
 }
+if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'rfc'")->fetch()) {
+    $pdo->exec("ALTER TABLE users ADD COLUMN rfc VARCHAR(13) NULL AFTER employee_number");
+    $pdo->exec("UPDATE users SET rfc = CONCAT('RFC', LPAD(id, 10, '0')) WHERE rfc IS NULL OR rfc = ''");
+    $pdo->exec("ALTER TABLE users MODIFY rfc VARCHAR(13) NOT NULL");
+    $pdo->exec("CREATE INDEX idx_users_rfc ON users (rfc)");
+}
 $pdo->exec(
     "ALTER TABLE check_records
      MODIFY phase ENUM('ingreso', 'salida_comer', 'entrada_comer', 'salida',
@@ -177,14 +185,14 @@ $pdo->exec(
                        'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL"
 );
 
-$baseline = dirname(__DIR__) . '/database/migrations/202606130001_baseline_current_schema.sql';
-if (is_file($baseline)) {
+$migrationsDir = dirname(__DIR__) . '/database/migrations';
+foreach (glob($migrationsDir . '/*.sql') ?: [] as $migrationFile) {
     $stmt = $pdo->prepare(
         "INSERT INTO schema_migrations (migration, checksum)
          VALUES (?, ?)
          ON DUPLICATE KEY UPDATE checksum = VALUES(checksum)"
     );
-    $stmt->execute([basename($baseline), hash_file('sha256', $baseline)]);
+    $stmt->execute([basename($migrationFile), hash_file('sha256', $migrationFile)]);
 }
 
 $pdo->exec("DROP TABLE IF EXISTS user_store_assignments");
@@ -194,24 +202,26 @@ $initialPassword = 'Cambiar123!';
 $hash = password_hash($initialPassword, PASSWORD_DEFAULT);
 
 $stmt = $pdo->prepare(
-    "INSERT INTO users (full_name, email, employee_number, password_hash, role, supervisor_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'active')
+    "INSERT INTO users (full_name, email, employee_number, rfc, password_hash, role, supervisor_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
      ON DUPLICATE KEY UPDATE
        full_name = VALUES(full_name),
        employee_number = VALUES(employee_number),
+       rfc = VALUES(rfc),
        password_hash = VALUES(password_hash),
        role = VALUES(role),
        supervisor_id = VALUES(supervisor_id),
        status = 'active'"
 );
 
-$stmt->execute(['Administrador General', 'admin@staraz.site', 'ADM001', $hash, 'admin', null]);
+$stmt->execute(['Administrador General', 'admin@staraz.site', 'ADM001', 'ADM010101AAA', $hash, 'admin', null]);
 
 for ($i = 1; $i <= 3; $i++) {
     $stmt->execute([
         'Supervisor ' . $i,
         'supervisor' . $i . '@staraz.site',
         'SUP' . str_pad((string)$i, 3, '0', STR_PAD_LEFT),
+        'SUP' . str_pad((string)$i, 10, '0', STR_PAD_LEFT),
         $hash,
         'supervisor',
         null
@@ -231,6 +241,7 @@ for ($i = 1; $i <= 30; $i++) {
         'Promotor ' . $i,
         'promotor' . $i . '@staraz.site',
         'PRO' . str_pad((string)$i, 3, '0', STR_PAD_LEFT),
+        'PRO' . str_pad((string)$i, 10, '0', STR_PAD_LEFT),
         $hash,
         'staff',
         $supervisorIds[$supervisorIndex]

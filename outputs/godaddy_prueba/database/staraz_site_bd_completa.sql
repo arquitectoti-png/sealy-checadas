@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(190) NULL UNIQUE,
   phone VARCHAR(40) NULL,
   employee_number VARCHAR(60) NULL UNIQUE,
+  rfc VARCHAR(13) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('admin', 'supervisor', 'staff') NOT NULL DEFAULT 'staff',
   supervisor_id BIGINT UNSIGNED NULL,
@@ -21,7 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_users_role (role),
-  INDEX idx_users_supervisor (supervisor_id)
+  INDEX idx_users_supervisor (supervisor_id),
+  INDEX idx_users_rfc (rfc)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS stores (
@@ -107,37 +109,46 @@ CREATE TABLE IF NOT EXISTS notices (
   INDEX idx_notices_status_date (status, published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  migration VARCHAR(190) NOT NULL UNIQUE,
+  checksum CHAR(64) NOT NULL,
+  applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- La contrasena inicial de todos es: Cambiar123!
 -- Se guarda con sha256$ porque la API valida este formato y permite cambiarla despues desde el panel.
 SET @initial_password_hash = CONCAT('sha256$', SHA2('Cambiar123!', 256));
 
-INSERT INTO users (full_name, email, employee_number, password_hash, role, supervisor_id, status)
-VALUES ('Administrador General', 'admin@staraz.site', 'ADM001', @initial_password_hash, 'admin', NULL, 'active')
+INSERT INTO users (full_name, email, employee_number, rfc, password_hash, role, supervisor_id, status)
+VALUES ('Administrador General', 'admin@staraz.site', 'ADM001', 'ADM010101AAA', @initial_password_hash, 'admin', NULL, 'active')
 ON DUPLICATE KEY UPDATE
   full_name = VALUES(full_name),
   employee_number = VALUES(employee_number),
+  rfc = VALUES(rfc),
   password_hash = VALUES(password_hash),
   role = VALUES(role),
   supervisor_id = VALUES(supervisor_id),
   status = 'active';
 
-INSERT INTO users (full_name, email, employee_number, password_hash, role, supervisor_id, status)
+INSERT INTO users (full_name, email, employee_number, rfc, password_hash, role, supervisor_id, status)
 VALUES
-  ('Supervisor 1', 'supervisor1@staraz.site', 'SUP001', @initial_password_hash, 'supervisor', NULL, 'active'),
-  ('Supervisor 2', 'supervisor2@staraz.site', 'SUP002', @initial_password_hash, 'supervisor', NULL, 'active'),
-  ('Supervisor 3', 'supervisor3@staraz.site', 'SUP003', @initial_password_hash, 'supervisor', NULL, 'active')
+  ('Supervisor 1', 'supervisor1@staraz.site', 'SUP001', 'SUP0000000001', @initial_password_hash, 'supervisor', NULL, 'active'),
+  ('Supervisor 2', 'supervisor2@staraz.site', 'SUP002', 'SUP0000000002', @initial_password_hash, 'supervisor', NULL, 'active'),
+  ('Supervisor 3', 'supervisor3@staraz.site', 'SUP003', 'SUP0000000003', @initial_password_hash, 'supervisor', NULL, 'active')
 ON DUPLICATE KEY UPDATE
   full_name = VALUES(full_name),
   employee_number = VALUES(employee_number),
+  rfc = VALUES(rfc),
   password_hash = VALUES(password_hash),
   role = VALUES(role),
   supervisor_id = VALUES(supervisor_id),
   status = 'active';
 
-INSERT INTO users (full_name, email, employee_number, password_hash, role, supervisor_id, status)
-SELECT CONCAT('Promotor ', n), CONCAT('promotor', n, '@staraz.site'), CONCAT('PRO', LPAD(n, 3, '0')), @initial_password_hash, 'staff',
+INSERT INTO users (full_name, email, employee_number, rfc, password_hash, role, supervisor_id, status)
+SELECT CONCAT('Promotor ', n), CONCAT('promotor', n, '@staraz.site'), CONCAT('PRO', LPAD(n, 3, '0')), CONCAT('PRO', LPAD(n, 10, '0')), @initial_password_hash, 'staff',
        CASE
          WHEN n <= 10 THEN (SELECT id FROM users WHERE email = 'supervisor1@staraz.site')
          WHEN n <= 20 THEN (SELECT id FROM users WHERE email = 'supervisor2@staraz.site')
@@ -155,6 +166,7 @@ FROM (
 ON DUPLICATE KEY UPDATE
   full_name = VALUES(full_name),
   employee_number = VALUES(employee_number),
+  rfc = VALUES(rfc),
   password_hash = VALUES(password_hash),
   role = VALUES(role),
   supervisor_id = VALUES(supervisor_id),
@@ -164,3 +176,9 @@ ON DUPLICATE KEY UPDATE
 -- cadena,nombre,direccion,latitud,longitud,radio
 
 -- Los avisos para promotores se crean desde el panel web.
+
+INSERT INTO schema_migrations (migration, checksum)
+VALUES
+  ('202606130001_baseline_current_schema.sql', 'bb957a0bf8be3a9d66f853f73c8390b57114bd8d1d3176178334055e18c32ba0'),
+  ('202606180001_add_user_rfc.sql', '237921319ca7677657424f642dc0a98ad27cc4c400775fd83d25d993a5d36a99')
+ON DUPLICATE KEY UPDATE checksum = VALUES(checksum);

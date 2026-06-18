@@ -327,6 +327,24 @@ function require_text_field(array $data, string $key, string $label): string
     return $value;
 }
 
+function normalize_rfc(string $rfc): string
+{
+    $upper = strtoupper(trim($rfc));
+    return preg_replace('/[^A-Z0-9&Ñ]/u', '', $upper) ?? '';
+}
+
+function require_rfc_field(array $data): string
+{
+    $rfc = normalize_rfc((string)($data['rfc'] ?? ''));
+    if ($rfc === '') {
+        response_json(['error' => 'El RFC es obligatorio'], 400);
+    }
+    if (strlen($rfc) > 13) {
+        response_json(['error' => 'El RFC no debe exceder 13 caracteres'], 400);
+    }
+    return $rfc;
+}
+
 function require_email_field(array $data, string $key, string $label): string
 {
     $value = require_text_field($data, $key, $label);
@@ -841,6 +859,7 @@ function build_daily_check_rows(array $rows): array
                 'fecha' => $row['check_date'],
                 'user_id' => $row['user_id'],
                 'promotor' => $row['staff_name'] ?? '',
+                'rfc' => $row['staff_rfc'] ?? '',
                 'supervisor' => $row['supervisor_name'] ?? '',
                 'tiempo_laborado' => '',
                 'tiempo_comida' => '',
@@ -1460,8 +1479,8 @@ try {
         }
         if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
             $term = '%' . trim((string)$_GET['promoter']) . '%';
-            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
-            array_push($params, $term, $term, $term);
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ? OR u.rfc LIKE ?)";
+            array_push($params, $term, $term, $term, $term);
         }
         if (isset($_GET['store_query']) && trim((string)$_GET['store_query']) !== '') {
             $term = '%' . trim((string)$_GET['store_query']) . '%';
@@ -1472,7 +1491,7 @@ try {
         $stmt = $pdo->prepare(
             "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device,
                     c.latitude, c.longitude, c.distance_meters, c.photo_path, c.source, c.status,
-                    u.full_name AS staff_name, sup.full_name AS supervisor_name, s.name AS store_name, s.chain AS store_chain
+                    u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name, s.name AS store_name, s.chain AS store_chain
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -1689,11 +1708,11 @@ try {
         $errors = [];
         $defaultPassword = (string)($data['default_password'] ?? 'Cambiar123!');
         $stmtInsert = $pdo->prepare(
-            "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, status)
-             VALUES (?, ?, ?, ?, ?, 'staff', ?, 'active')"
+            "INSERT INTO users (full_name, email, phone, employee_number, rfc, password_hash, role, supervisor_id, status)
+             VALUES (?, ?, ?, ?, ?, ?, 'staff', ?, 'active')"
         );
         $stmtUpdate = $pdo->prepare(
-            "UPDATE users SET full_name = ?, email = ?, phone = ?, supervisor_id = ?, role = 'staff', status = 'active'
+            "UPDATE users SET full_name = ?, email = ?, phone = ?, rfc = ?, supervisor_id = ?, role = 'staff', status = 'active'
              WHERE employee_number = ?"
         );
         $findSupervisor = $pdo->prepare(
@@ -1720,20 +1739,22 @@ try {
                 $email = trim((string)($row['email'] ?? $row['correo'] ?? ''));
                 $phone = trim((string)($row['telefono'] ?? $row['phone'] ?? ''));
                 $employee = trim((string)($row['numero_empleado'] ?? $row['empleado'] ?? $row['employee_number'] ?? ''));
+                $rfc = normalize_rfc((string)($row['rfc'] ?? ''));
                 $supervisorKey = trim((string)($row['supervisor'] ?? $row['supervisor_email'] ?? $row['supervisor_empleado'] ?? ''));
                 $password = trim((string)($row['password'] ?? $row['contrasena'] ?? '')) ?: $defaultPassword;
             } else {
                 $name = trim((string)($cols[0] ?? ''));
                 $email = trim((string)($cols[1] ?? ''));
                 $employee = trim((string)($cols[2] ?? ''));
-                $phone = trim((string)($cols[3] ?? ''));
-                $supervisorKey = trim((string)($cols[4] ?? ''));
-                $password = trim((string)($cols[5] ?? '')) ?: $defaultPassword;
+                $rfc = normalize_rfc((string)($cols[3] ?? ''));
+                $phone = trim((string)($cols[4] ?? ''));
+                $supervisorKey = trim((string)($cols[5] ?? ''));
+                $password = trim((string)($cols[6] ?? '')) ?: $defaultPassword;
             }
-            if ($name === '' || $email === '' || $employee === '' || $phone === '' || $password === '') {
+            if ($name === '' || $email === '' || $employee === '' || $rfc === '' || $phone === '' || $password === '') {
                 $skipped++;
                 if (count($errors) < 10) {
-                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre, email, telefono, numero de empleado o contrasena';
+                    $errors[] = 'Linea ' . ($i + 1) . ': falta nombre, email, RFC, telefono, numero de empleado o contrasena';
                 }
                 continue;
             }
@@ -1768,10 +1789,10 @@ try {
                     }
                     continue;
                 }
-                $stmtUpdate->execute([$name, $email ?: null, $phone ?: null, $supervisorId, $employee]);
+                $stmtUpdate->execute([$name, $email ?: null, $phone ?: null, $rfc, $supervisorId, $employee]);
                 $updated++;
             } else {
-                $stmtInsert->execute([$name, $email ?: null, $phone ?: null, $employee, password_hash($password, PASSWORD_DEFAULT), $supervisorId]);
+                $stmtInsert->execute([$name, $email ?: null, $phone ?: null, $employee, $rfc, password_hash($password, PASSWORD_DEFAULT), $supervisorId]);
                 $created++;
             }
         }
@@ -1787,7 +1808,7 @@ try {
             $where = "WHERE u.role = 'staff'";
         }
         $stmt = $pdo->prepare(
-            "SELECT u.id, u.full_name, u.email, u.phone, u.employee_number, u.role, u.supervisor_id,
+            "SELECT u.id, u.full_name, u.email, u.phone, u.employee_number, u.rfc, u.role, u.supervisor_id,
                     u.requires_location_verification,
                     s.full_name AS supervisor_name, u.status
              FROM users u
@@ -1807,6 +1828,7 @@ try {
         $email = require_email_field($data, 'email', 'El email');
         $phone = require_text_field($data, 'phone', 'El telefono');
         $employeeNumber = require_text_field($data, 'employee_number', 'El numero de empleado');
+        $rfc = require_rfc_field($data);
         $password = require_text_field($data, 'password', 'La contrasena');
         if (strlen($password) < 8) {
             response_json(['error' => 'La contrasena debe tener al menos 8 caracteres'], 400);
@@ -1821,14 +1843,15 @@ try {
         }
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
-            "INSERT INTO users (full_name, email, phone, employee_number, password_hash, role, supervisor_id, requires_location_verification, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO users (full_name, email, phone, employee_number, rfc, password_hash, role, supervisor_id, requires_location_verification, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $fullName,
             $email,
             $phone,
             $employeeNumber,
+            $rfc,
             password_hash($password, PASSWORD_DEFAULT),
             $role,
             $supervisorId,
@@ -1847,6 +1870,7 @@ try {
         $email = require_email_field($data, 'email', 'El email');
         $phone = require_text_field($data, 'phone', 'El telefono');
         $employeeNumber = require_text_field($data, 'employee_number', 'El numero de empleado');
+        $rfc = require_rfc_field($data);
         $role = $user['role'] === 'supervisor' ? 'staff' : (string)($data['role'] ?? 'staff');
         if (!in_array($role, ['admin', 'supervisor', 'staff'], true)) {
             response_json(['error' => 'Rol invalido'], 400);
@@ -1858,7 +1882,7 @@ try {
         $status = require_status($data['status'] ?? 'active');
         $stmt = $pdo->prepare(
             "UPDATE users
-             SET full_name = ?, email = ?, phone = ?, employee_number = ?, role = ?, supervisor_id = ?, requires_location_verification = ?, status = ?
+             SET full_name = ?, email = ?, phone = ?, employee_number = ?, rfc = ?, role = ?, supervisor_id = ?, requires_location_verification = ?, status = ?
              WHERE id = ?"
         );
         $stmt->execute([
@@ -1866,6 +1890,7 @@ try {
             $email,
             $phone,
             $employeeNumber,
+            $rfc,
             $role,
             $supervisorId,
             !empty($data['requires_location_verification']) ? 1 : 0,
@@ -2037,8 +2062,8 @@ try {
         }
         if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
             $term = '%' . trim((string)$_GET['promoter']) . '%';
-            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
-            array_push($params, $term, $term, $term);
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ? OR u.rfc LIKE ?)";
+            array_push($params, $term, $term, $term, $term);
         }
         if (isset($_GET['store_query']) && trim((string)$_GET['store_query']) !== '') {
             $term = '%' . trim((string)$_GET['store_query']) . '%';
@@ -2046,7 +2071,7 @@ try {
             array_push($params, $term, $term);
         }
         $stmt = $pdo->prepare(
-            "SELECT c.user_id, c.check_date, u.full_name AS staff_name, sup.full_name AS supervisor_name,
+            "SELECT c.user_id, c.check_date, u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
                     s.name AS store_name, s.chain AS store_chain, c.phase, c.checked_at, c.distance_meters, c.status, c.source, c.photo_path
              FROM check_records c
              JOIN users u ON u.id = c.user_id
@@ -2059,6 +2084,7 @@ try {
         $columns = [
             'fecha' => 'Fecha',
             'promotor' => 'Promotor',
+            'rfc' => 'RFC',
             'supervisor' => 'Supervisor',
             'ingreso' => 'Ingreso',
             'ingreso_cadena' => 'Cadena ingreso',
@@ -2136,8 +2162,8 @@ try {
         }
         if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
             $term = '%' . trim((string)$_GET['promoter']) . '%';
-            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
-            array_push($params, $term, $term, $term);
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ? OR u.rfc LIKE ?)";
+            array_push($params, $term, $term, $term, $term);
         }
         if (isset($_GET['chain']) && trim((string)$_GET['chain']) !== '') {
             $where[] = "s.chain LIKE ?";
@@ -2149,7 +2175,7 @@ try {
             array_push($params, $term, $term);
         }
         $stmt = $pdo->prepare(
-            "SELECT u.full_name AS promotor, u.employee_number, u.email, sup.full_name AS supervisor,
+            "SELECT u.full_name AS promotor, u.rfc, u.employee_number, u.email, sup.full_name AS supervisor,
                     s.chain AS cadena, s.name AS tienda, s.address AS direccion, c.checked_at AS ingreso,
                     c.distance_meters, c.status
              FROM check_records c
@@ -2163,9 +2189,9 @@ try {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="promotores_que_si_checaron.csv"');
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['fecha', 'promotor', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'distancia_m', 'estado']);
+        fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'distancia_m', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
-            fputcsv($out, [$date, $row['promotor'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], $row['ingreso'], $row['distance_meters'], status_label((string)$row['status'])]);
+            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], $row['ingreso'], $row['distance_meters'], status_label((string)$row['status'])]);
         }
         exit;
     }
@@ -2182,11 +2208,11 @@ try {
         }
         if (isset($_GET['promoter']) && trim((string)$_GET['promoter']) !== '') {
             $term = '%' . trim((string)$_GET['promoter']) . '%';
-            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ?)";
-            array_push($params, $term, $term, $term);
+            $where[] = "(u.full_name LIKE ? OR u.email LIKE ? OR u.employee_number LIKE ? OR u.rfc LIKE ?)";
+            array_push($params, $term, $term, $term, $term);
         }
         $stmt = $pdo->prepare(
-            "SELECT u.full_name AS promotor, u.employee_number, u.email, sup.full_name AS supervisor
+            "SELECT u.full_name AS promotor, u.rfc, u.employee_number, u.email, sup.full_name AS supervisor
              FROM users u
              LEFT JOIN users sup ON sup.id = u.supervisor_id
              LEFT JOIN check_records c ON c.user_id = u.id AND c.check_date = ? AND c.phase = 'ingreso'
@@ -2197,9 +2223,9 @@ try {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="promotores_que_no_checaron.csv"');
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['fecha', 'promotor', 'numero_empleado', 'email', 'supervisor', 'estado']);
+        fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
-            fputcsv($out, [$date, $row['promotor'], $row['employee_number'], $row['email'], $row['supervisor'], 'Sin ingreso']);
+            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], 'Sin ingreso']);
         }
         exit;
     }
@@ -2214,7 +2240,7 @@ try {
             $params[] = (int)$_GET['supervisor_id'];
         }
         $stmt = $pdo->prepare(
-            "SELECT u.full_name AS promotor, u.email, u.employee_number, sup.full_name AS supervisor, u.status
+            "SELECT u.full_name AS promotor, u.rfc, u.email, u.employee_number, sup.full_name AS supervisor, u.status
              FROM users u
              LEFT JOIN users sup ON sup.id = u.supervisor_id
              WHERE " . implode(' AND ', $where) . "
@@ -2224,7 +2250,7 @@ try {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="promotores_por_supervisor.csv"');
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['promotor', 'email', 'numero_empleado', 'supervisor', 'estado']);
+        fputcsv($out, ['promotor', 'rfc', 'email', 'numero_empleado', 'supervisor', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
             fputcsv($out, $row);
         }

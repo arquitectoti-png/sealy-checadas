@@ -79,6 +79,12 @@ supervisor3@staraz.site
 promotor1@staraz.site ... promotor30@staraz.site
 ```
 
+RFC:
+
+- El RFC es obligatorio en altas y ediciones de usuarios.
+- La carga masiva de promotores usa columnas `nombre,email,numero_empleado,rfc,telefono,supervisor,contrasena`.
+- Los usuarios se inactivan desde el panel para conservar historico de checadas.
+
 ## Validacion local realizada
 
 - App movil configurada con `https://staraz.site/sealy/api`.

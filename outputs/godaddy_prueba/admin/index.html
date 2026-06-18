@@ -163,6 +163,7 @@
             <label>Email<input id="userEmail"></label>
             <label>Telefono<input id="userPhone"></label>
             <label>No. empleado<input id="userEmployee"></label>
+            <label>RFC<input id="userRfc" maxlength="13" placeholder="RFC obligatorio"></label>
             <label>Rol<select id="userRole"><option value="staff">Promotor</option><option value="supervisor">Supervisor</option><option value="admin">Administrador</option></select></label>
             <label>Supervisor<select id="userSupervisor"></select></label>
             <label style="display:flex;gap:8px;align-items:center;color:var(--text);font-weight:400"><input id="userRequiresVerification" type="checkbox" style="width:auto"> Pedir verificaciones de ubicación</label>
@@ -176,12 +177,12 @@
         </div>
         <div class="card">
           <h2>Carga masiva de promotores</h2>
-          <p class="small">Puedes subir Excel .xlsx o pegar CSV. Columnas: nombre,email,numero_empleado,telefono,supervisor,contrasena. El supervisor es opcional y queda solo como referencia.</p>
+          <p class="small">Puedes subir Excel .xlsx o pegar CSV. Columnas: nombre,email,numero_empleado,rfc,telefono,supervisor,contrasena. El RFC es obligatorio.</p>
           <div class="actions" style="margin-bottom:10px">
             <a class="btn secondary" href="./assets/layout_carga_usuarios.xlsx" download>Descargar layout Excel</a>
           </div>
           <label>Archivo Excel .xlsx<input id="usersFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
-          <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,5512345678,Supervisor 1,Cambiar123!</textarea>
+          <textarea id="usersCsv">Promotor Nuevo,promotor.nuevo@staraz.site,PRO999,PNV010101AAA,5512345678,Supervisor 1,Cambiar123!</textarea>
           <label>Contraseña default<input id="usersDefaultPassword" value="Cambiar123!"></label>
           <button id="importUsersBtn" class="btn">Cargar promotores</button>
         </div>
@@ -246,7 +247,7 @@
             <label>Fin<input id="checksEnd" type="date"></label>
             <label>Supervisor<select id="checksSupervisor"></select></label>
             <label>Cadena<input id="checksChain" placeholder="Coppel, Suburbia"></label>
-            <label>Promotor<input id="checksPromoter" placeholder="Nombre, correo o empleado"></label>
+            <label>Promotor<input id="checksPromoter" placeholder="Nombre, RFC, correo o empleado"></label>
             <label>Tienda / dirección<input id="checksStoreQuery" placeholder="Nombre o dirección"></label>
           </div>
           <button id="loadChecksBtn" class="btn">Consultar checadas</button>
@@ -281,7 +282,7 @@
             <label>Fin<input id="reportEnd" type="date"></label>
             <label>Supervisor<select id="reportSupervisor"></select></label>
             <label>Cadena<input id="reportChain" placeholder="Coppel, Suburbia"></label>
-            <label>Promotor<input id="reportPromoter" placeholder="Nombre, correo o empleado"></label>
+            <label>Promotor<input id="reportPromoter" placeholder="Nombre, RFC, correo o empleado"></label>
             <label>Tienda / dirección<input id="reportStoreQuery" placeholder="Nombre o dirección"></label>
           </div>
           <div class="actions">
@@ -517,9 +518,10 @@
       $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
     }
     function renderUsers() {
-      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>Rol</th><th>Supervisor</th><th>Verif. ubicación</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
+      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>RFC</th><th>Rol</th><th>Supervisor</th><th>Verif. ubicación</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
         <tr>
           <td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.email || u.employee_number || "")}</div></td>
+          <td>${escapeHtml(u.rfc || "-")}</td>
           <td>${roleLabel(u.role)}</td>
           <td>${escapeHtml(u.supervisor_name || "-")}</td>
           <td>${u.role === "staff" ? `<button class="btn secondary" onclick="toggleLocationVerification(${u.id}, ${Number(u.requires_location_verification || 0) ? "false" : "true"})">${Number(u.requires_location_verification || 0) ? "Activa" : "Inactiva"}</button>` : "-"}</td>
@@ -527,12 +529,12 @@
           <td class="actions">
             <button class="btn secondary" onclick="editUser(${u.id})">Editar</button>
             <button class="btn secondary" onclick="resetPassword(${u.id})">Contraseña</button>
-            <button class="btn danger" onclick="deleteUser(${u.id})">Eliminar</button>
+            <button class="btn danger" onclick="deleteUser(${u.id})">Inactivar</button>
           </td>
         </tr>`).join("")}</tbody></table>`;
     }
     function renderAssignments() {
-      const rows = users.filter(u => u.role === "staff").map(u => `<tr><td>${escapeHtml(u.full_name)}</td><td>${escapeHtml(u.supervisor_name || "Sin supervisor")}</td><td>${statusBadge(u.status)}</td></tr>`).join("");
+      const rows = users.filter(u => u.role === "staff").map(u => `<tr><td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.rfc || "")}</div></td><td>${escapeHtml(u.supervisor_name || "Sin supervisor")}</td><td>${statusBadge(u.status)}</td></tr>`).join("");
       $("assignmentTable").innerHTML = `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     function renderStores() {
@@ -559,6 +561,7 @@
       $("userEmail").value = u.email || "";
       $("userPhone").value = u.phone || "";
       $("userEmployee").value = u.employee_number || "";
+      $("userRfc").value = u.rfc || "";
       $("userRole").value = u.role;
       $("userSupervisor").value = u.supervisor_id || "";
       $("userRequiresVerification").checked = Number(u.requires_location_verification || 0) === 1;
@@ -571,7 +574,7 @@
       alert(`Contraseña actualizada: ${data.temporary_password || password}`);
     };
     window.deleteUser = async id => {
-      if (!confirm("¿Eliminar/desactivar usuario?")) return;
+      if (!confirm("¿Inactivar usuario?")) return;
       await request(`/admin/users/${id}`, { method: "DELETE" });
       await loadUsers();
     };
@@ -585,6 +588,7 @@
         email: requiredValue("userEmail", "El email"),
         phone: requiredValue("userPhone", "El telefono"),
         employee_number: requiredValue("userEmployee", "El numero de empleado"),
+        rfc: requiredValue("userRfc", "El RFC").toUpperCase().replace(/[^A-Z0-9&]/g, ""),
         role: isAdmin() ? $("userRole").value : "staff",
         supervisor_id: isAdmin() ? ($("userSupervisor").value || null) : null,
         requires_location_verification: $("userRequiresVerification").checked,
@@ -603,7 +607,7 @@
     }
     function resetUserForm() {
       $("userFormTitle").textContent = "Agregar usuario";
-      ["userId","userFullName","userEmail","userPhone","userEmployee","userPassword"].forEach(id => $(id).value = "");
+      ["userId","userFullName","userEmail","userPhone","userEmployee","userRfc","userPassword"].forEach(id => $(id).value = "");
       $("userRole").value = "staff"; $("userSupervisor").value = isAdmin() ? "" : (user ? user.id : ""); $("userStatus").value = "active";
       $("userRequiresVerification").checked = false;
     }
@@ -705,6 +709,7 @@
     const reportColumnOptions = [
       ["fecha", "Fecha"],
       ["promotor", "Promotor"],
+      ["rfc", "RFC"],
       ["supervisor", "Supervisor"],
       ["ingreso", "Ingreso"],
       ["ingreso_cadena", "Cadena ingreso"],
@@ -774,10 +779,11 @@
           <div class="small">${escapeHtml([item[`${phase}_cadena`], item[`${phase}_tienda`]].filter(Boolean).join(" - "))} ${photo(item, `${phase}_foto_url`)}</div>
           <div class="small">${item[`${phase}_distancia_m`] ? `${escapeHtml(item[`${phase}_distancia_m`])} m` : ""} ${escapeHtml(item[`${phase}_estado`] || "")}</div>
         </td>`;
-      $("checksTable").innerHTML = rows.length ? `<table><thead><tr><th>Fecha</th><th>Promotor</th><th>Ingreso</th><th>Salida a comer</th><th>Entrada de comer</th><th>Salida</th><th>Verif. 1</th><th>Verif. 2</th><th>Verif. 3</th><th>Laborado</th><th>Comida</th></tr></thead><tbody>${rows.map(item => `
+      $("checksTable").innerHTML = rows.length ? `<table><thead><tr><th>Fecha</th><th>Promotor</th><th>RFC</th><th>Ingreso</th><th>Salida a comer</th><th>Entrada de comer</th><th>Salida</th><th>Verif. 1</th><th>Verif. 2</th><th>Verif. 3</th><th>Laborado</th><th>Comida</th></tr></thead><tbody>${rows.map(item => `
         <tr>
           <td>${escapeHtml(item.fecha)}</td>
           <td>${escapeHtml(item.promotor)}<div class="small">${escapeHtml(item.supervisor || "")}</div></td>
+          <td>${escapeHtml(item.rfc || "")}</td>
           ${phaseCell(item, "ingreso")}
           ${phaseCell(item, "salida_comer")}
           ${phaseCell(item, "entrada_comer")}
