@@ -41,7 +41,7 @@
     .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
     .card {
       background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-      padding: 16px; margin-bottom: 16px;
+      padding: 16px; margin-bottom: 16px; min-width: 0;
     }
     .grid { display: grid; gap: 14px; }
     .two { grid-template-columns: minmax(0, 1fr) minmax(330px, .7fr); }
@@ -62,6 +62,12 @@
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: middle; }
     th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .table-scroll { max-width: 100%; overflow-x: auto; padding-bottom: 4px; }
+    .table-scroll table { min-width: 760px; }
+    #usersTable table { min-width: 980px; }
+    #usersTable td:last-child { width: 132px; }
+    #usersTable td:last-child .btn { width: 112px; }
+    .btn { white-space: nowrap; }
     .status { display: inline-flex; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 700; }
     .ok { background: #e8f7ef; color: var(--success); }
     .warn { background: #fff4df; color: var(--warning); }
@@ -518,7 +524,7 @@
       $("assignStaff").innerHTML = staff.map(u => `<option value="${u.id}">${escapeHtml(u.full_name)}${u.supervisor_name ? " - " + escapeHtml(u.supervisor_name) : ""}</option>`).join("");
     }
     function renderUsers() {
-      $("usersTable").innerHTML = `<table><thead><tr><th>Nombre</th><th>RFC</th><th>Rol</th><th>Supervisor</th><th>Verif. ubicación</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
+      $("usersTable").innerHTML = `<div class="table-scroll"><table><thead><tr><th>Nombre</th><th>RFC</th><th>Rol</th><th>Supervisor</th><th>Verif. ubicación</th><th>Estado</th><th></th></tr></thead><tbody>${users.map(u => `
         <tr>
           <td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.email || u.employee_number || "")}</div></td>
           <td>${escapeHtml(u.rfc || "-")}</td>
@@ -531,7 +537,7 @@
             <button class="btn secondary" onclick="resetPassword(${u.id})">Contraseña</button>
             <button class="btn danger" onclick="deleteUser(${u.id})">Inactivar</button>
           </td>
-        </tr>`).join("")}</tbody></table>`;
+        </tr>`).join("")}</tbody></table></div>`;
     }
     function renderAssignments() {
       const rows = users.filter(u => u.role === "staff").map(u => `<tr><td>${escapeHtml(u.full_name)}<div class="small">${escapeHtml(u.rfc || "")}</div></td><td>${escapeHtml(u.supervisor_name || "Sin supervisor")}</td><td>${statusBadge(u.status)}</td></tr>`).join("");
