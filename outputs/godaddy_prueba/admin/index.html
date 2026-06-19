@@ -64,7 +64,7 @@
     th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
     .table-scroll { max-width: 100%; overflow-x: auto; padding-bottom: 4px; }
     .table-scroll table { min-width: 760px; }
-    #usersTable table { min-width: 980px; }
+    #usersTable table, #storesTable table { min-width: 980px; }
     #usersTable td:last-child { width: 132px; }
     #usersTable td:last-child .btn { width: 112px; }
     .btn { white-space: nowrap; }
@@ -108,6 +108,7 @@
         <button data-view="userForm">Agregar usuario</button>
         <button class="admin-only" data-view="assignments">Asignaciones</button>
         <button data-view="stores">Tiendas</button>
+        <button data-view="storeForm">Agregar tienda</button>
         <button data-view="checks">Checadas</button>
         <button data-view="notices">Avisos</button>
         <button data-view="reports">Reportes</button>
@@ -217,27 +218,12 @@
       </section>
 
       <section id="stores" class="view hidden">
-        <div class="grid two">
-          <div class="card">
-            <h2>Tiendas</h2>
-            <div id="storesTable" class="small">Cargando...</div>
+        <div class="card">
+          <div class="actions" style="justify-content:space-between;margin-bottom:12px">
+            <h2 style="margin:0">Tiendas</h2>
+            <button id="newStoreBtn" class="btn">Agregar tienda</button>
           </div>
-          <div class="card">
-            <h2 id="storeFormTitle">Agregar tienda</h2>
-            <input id="storeId" type="hidden">
-            <label>Cadena<input id="storeChain" placeholder="Coppel, Suburbia, Liverpool"></label>
-            <label>Nombre<input id="storeName"></label>
-            <label>Dirección<input id="storeAddress"></label>
-            <label>Latitud<input id="storeLat"></label>
-            <label>Longitud<input id="storeLng"></label>
-            <label>Radio metros<input id="storeRadius" value="50"></label>
-            <label>Zona horaria<select id="storeTimezone"></select></label>
-            <label>Estado<select id="storeStatus"><option value="active">Activa</option><option value="inactive">Inactiva</option></select></label>
-            <div class="actions">
-              <button id="saveStoreBtn" class="btn">Guardar tienda</button>
-              <button id="resetStoreFormBtn" class="btn secondary">Limpiar</button>
-            </div>
-          </div>
+          <div id="storesTable" class="small">Cargando...</div>
         </div>
         <div class="card">
           <h2>Carga masiva de tiendas</h2>
@@ -248,6 +234,26 @@
           <label>Archivo Excel .xlsx<input id="storesFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
           <textarea id="storesCsv">Coppel,Tienda Centro,Direccion real,19.432608,-99.133209,50,AUTO</textarea>
           <button id="importStoresBtn" class="btn">Cargar tiendas</button>
+        </div>
+      </section>
+
+      <section id="storeForm" class="view hidden">
+        <div class="card" style="max-width:760px">
+          <h2 id="storeFormTitle">Agregar tienda</h2>
+          <input id="storeId" type="hidden">
+          <label>Cadena<input id="storeChain" placeholder="Coppel, Suburbia, Liverpool"></label>
+          <label>Nombre<input id="storeName"></label>
+          <label>Dirección<input id="storeAddress"></label>
+          <label>Latitud<input id="storeLat"></label>
+          <label>Longitud<input id="storeLng"></label>
+          <label>Radio metros<input id="storeRadius" value="50"></label>
+          <label>Zona horaria<select id="storeTimezone"></select></label>
+          <label>Estado<select id="storeStatus"><option value="active">Activa</option><option value="inactive">Inactiva</option></select></label>
+          <div class="actions">
+            <button id="saveStoreBtn" class="btn">Guardar tienda</button>
+            <button id="resetStoreFormBtn" class="btn secondary">Limpiar</button>
+            <button id="cancelStoreFormBtn" class="btn secondary">Volver a tiendas</button>
+          </div>
         </div>
       </section>
 
@@ -552,7 +558,7 @@
       $("assignmentTable").innerHTML = `<table><thead><tr><th>Promotor</th><th>Supervisor</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }
     function renderStores() {
-      $("storesTable").innerHTML = `<table><thead><tr><th>Cadena</th><th>Tienda</th><th>Coordenadas</th><th>Radio</th><th>Horario</th><th>Estado</th><th></th></tr></thead><tbody>${stores.map(s => `
+      $("storesTable").innerHTML = `<div class="table-scroll"><table><thead><tr><th>Cadena</th><th>Tienda</th><th>Coordenadas</th><th>Radio</th><th>Horario</th><th>Estado</th><th></th></tr></thead><tbody>${stores.map(s => `
         <tr>
           <td>${escapeHtml(s.chain || "-")}</td>
           <td>${escapeHtml(s.name)}<div class="small">${escapeHtml(s.address || "")}</div></td>
@@ -564,7 +570,7 @@
             <button class="btn secondary" onclick="editStore(${s.id})">Editar</button>
             <button class="btn danger" onclick="deleteStore(${s.id})">Eliminar</button>
           </td>
-        </tr>`).join("")}</tbody></table>`;
+        </tr>`).join("")}</tbody></table></div>`;
     }
     window.editUser = id => {
       const u = users.find(x => Number(x.id) === Number(id));
@@ -646,6 +652,7 @@
       $("storeId").value = s.id; $("storeChain").value = s.chain || ""; $("storeName").value = s.name || ""; $("storeAddress").value = s.address || "";
       $("storeLat").value = s.latitude; $("storeLng").value = s.longitude; $("storeRadius").value = s.allowed_radius_meters || 50; $("storeStatus").value = s.status;
       $("storeTimezone").value = s.timezone || "America/Mexico_City";
+      show("storeForm");
     };
     window.deleteStore = async id => {
       if (!confirm("¿Eliminar/desactivar tienda?")) return;
@@ -667,7 +674,7 @@
       };
       if (body.allowed_radius_meters <= 0) throw new Error("El radio debe ser mayor a cero");
       await request(id ? `/admin/stores/${id}` : "/admin/stores", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
-      resetStoreForm(); await loadStores();
+      resetStoreForm(); await loadStores(); show("stores");
     }
     function resetStoreForm() {
       $("storeFormTitle").textContent = "Agregar tienda";
@@ -902,7 +909,8 @@
         users: ["Usuarios", "Consulta, edición rápida e importación masiva."],
         userForm: ["Agregar usuario", "Alta o modificación de usuarios y promotores."],
         assignments: ["Asignaciones", "Referencia opcional; todos los supervisores ven a todos los promotores."],
-        stores: ["Tiendas", "Alta, modificación, eliminación y carga masiva."],
+        stores: ["Tiendas", "Consulta, edición rápida y carga masiva."],
+        storeForm: ["Agregar tienda", "Alta o modificación de tiendas y ubicación."],
         checks: ["Checadas", "Consulta en pantalla con foto, hora, tienda y tiempos."],
         notices: ["Avisos", "Comunicados e imagenes para promotores."],
         reports: ["Reportes", "Descargas por periodo y por supervisores."]
@@ -921,8 +929,10 @@
     $("resetUserFormBtn").onclick = resetUserForm;
     $("cancelUserFormBtn").onclick = () => { resetUserForm(); show("users"); };
     $("assignBtn").onclick = () => assignPromoters().catch(e => alert(e.message));
+    $("newStoreBtn").onclick = () => { resetStoreForm(); show("storeForm"); };
     $("saveStoreBtn").onclick = () => saveStore().catch(e => alert(e.message));
     $("resetStoreFormBtn").onclick = resetStoreForm;
+    $("cancelStoreFormBtn").onclick = () => { resetStoreForm(); show("stores"); };
     $("importStoresBtn").onclick = () => importStores().catch(e => alert(e.message));
     $("importUsersBtn").onclick = () => importUsers().catch(e => alert(e.message));
     $("loadChecksBtn").onclick = () => loadChecksView().catch(e => alert(e.message));
@@ -933,6 +943,7 @@
     $("downloadAssignmentsBtn").onclick = () => downloadAssignments().catch(e => alert(e.message));
     document.querySelectorAll("nav button").forEach(btn => btn.onclick = () => {
       if (btn.dataset.view === "userForm") resetUserForm();
+      if (btn.dataset.view === "storeForm") resetStoreForm();
       show(btn.dataset.view);
     });
     renderReportColumns();
