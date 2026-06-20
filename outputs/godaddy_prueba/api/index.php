@@ -444,8 +444,22 @@ function infer_timezone_from_coordinates(float $lat, float $lng): string
 
 function resolve_timezone(?string $value): ?string
 {
-    $value = strtoupper(trim((string)$value));
-    if ($value === '' || $value === 'AUTO' || $value === 'AUTOMATICO') {
+    $raw = trim((string)$value);
+    if ($raw === '') {
+        return null;
+    }
+    $iana = str_replace(' ', '_', $raw);
+    if (in_array($iana, timezone_identifiers_list(), true)) {
+        return $iana;
+    }
+    foreach (timezone_identifiers_list() as $identifier) {
+        if (strcasecmp($identifier, $iana) === 0) {
+            return $identifier;
+        }
+    }
+
+    $value = strtoupper($raw);
+    if ($value === 'AUTO' || $value === 'AUTOMATICO') {
         return null;
     }
     $aliases = [
@@ -491,10 +505,6 @@ function resolve_timezone(?string $value): ?string
     $options = timezone_options();
     if (isset($options[$key])) {
         return $options[$key]['timezone'];
-    }
-    $iana = str_replace(' ', '_', trim((string)$value));
-    if (in_array($iana, timezone_identifiers_list(), true)) {
-        return $iana;
     }
     return null;
 }
