@@ -56,6 +56,18 @@ function db(array $config): PDO
     return $pdo;
 }
 
+function begin_csv_download(string $filename)
+{
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $out = fopen('php://output', 'w');
+    if ($out === false) {
+        throw new RuntimeException('No se pudo crear el reporte CSV');
+    }
+    fwrite($out, "\xEF\xBB\xBF");
+    return $out;
+}
+
 function ensure_runtime_schema(PDO $pdo): void
 {
     static $checked = false;
@@ -535,6 +547,14 @@ function local_datetime(int $timestamp, string $timezone): string
         ->format('Y-m-d H:i:s');
 }
 
+function check_datetime_label(?string $value, ?string $timezone): string
+{
+    if (!$value) {
+        return '';
+    }
+    return $value . ' (' . timezone_label($timezone) . ')';
+}
+
 function can_manage_staff_user(PDO $pdo, array $user, int $targetId): array
 {
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
@@ -786,19 +806,19 @@ function phase_label(string $phase): string
         'salida_comer' => 'Salida a comer',
         'entrada_comer' => 'Entrada de comer',
         'salida' => 'Salida',
-        'verificacion_ubicacion_1' => 'Verificacion de ubicacion 1',
-        'verificacion_ubicacion_2' => 'Verificacion de ubicacion 2',
-        'verificacion_ubicacion_3' => 'Verificacion de ubicacion 3',
+        'verificacion_ubicacion_1' => 'Verificación de ubicación 1',
+        'verificacion_ubicacion_2' => 'Verificación de ubicación 2',
+        'verificacion_ubicacion_3' => 'Verificación de ubicación 3',
     ][$phase] ?? $phase;
 }
 
 function status_label(string $status): string
 {
     return [
-        'valid' => 'Valida',
+        'valid' => 'Válida',
         'synced' => 'Sincronizada',
         'blocked_out_of_range' => 'Fuera de rango',
-        'manual_review' => 'Revision manual',
+        'manual_review' => 'Revisión manual',
         'rejected' => 'Rechazada',
     ][$status] ?? $status;
 }
@@ -806,7 +826,7 @@ function status_label(string $status): string
 function source_label(string $source): string
 {
     return [
-        'online' => 'En linea',
+        'online' => 'En línea',
         'offline_sync' => 'Sincronizada offline',
         'manual' => 'Manual',
     ][$source] ?? $source;
@@ -908,7 +928,8 @@ function build_daily_check_rows(array $rows): array
             ];
         }
         $phase = $row['phase'];
-        $daily[$key][$phase] = $row['checked_at'];
+        $daily[$key][$phase] = check_datetime_label($row['checked_at'] ?? '', $row['store_timezone'] ?? null);
+        $daily[$key][$phase . '_zona_horaria'] = timezone_label($row['store_timezone'] ?? null);
         $daily[$key][$phase . '_cadena'] = $row['store_chain'] ?? '';
         $daily[$key][$phase . '_tienda'] = $row['store_name'] ?? '';
         $daily[$key][$phase . '_distancia_m'] = $row['distance_meters'] ?? '';
@@ -1491,7 +1512,8 @@ try {
         $stmt = $pdo->prepare(
             "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device,
                     c.latitude, c.longitude, c.distance_meters, c.photo_path, c.source, c.status,
-                    u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name, s.name AS store_name, s.chain AS store_chain
+                    u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
+                    s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2072,7 +2094,8 @@ try {
         }
         $stmt = $pdo->prepare(
             "SELECT c.user_id, c.check_date, u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
-                    s.name AS store_name, s.chain AS store_chain, c.phase, c.checked_at, c.distance_meters, c.status, c.source, c.photo_path
+                    s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone,
+                    c.phase, c.checked_at, c.distance_meters, c.status, c.source, c.photo_path
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2087,42 +2110,49 @@ try {
             'rfc' => 'RFC',
             'supervisor' => 'Supervisor',
             'ingreso' => 'Ingreso',
+            'ingreso_zona_horaria' => 'Zona horaria ingreso',
             'ingreso_cadena' => 'Cadena ingreso',
             'ingreso_tienda' => 'Tienda ingreso',
             'ingreso_distancia_m' => 'Distancia ingreso m',
             'ingreso_estado' => 'Estado ingreso',
             'ingreso_foto_url' => 'Foto ingreso',
             'salida_comer' => 'Salida a comer',
+            'salida_comer_zona_horaria' => 'Zona horaria salida a comer',
             'salida_comer_cadena' => 'Cadena salida a comer',
             'salida_comer_tienda' => 'Tienda salida a comer',
             'salida_comer_distancia_m' => 'Distancia salida a comer m',
             'salida_comer_estado' => 'Estado salida a comer',
             'salida_comer_foto_url' => 'Foto salida a comer',
             'entrada_comer' => 'Entrada de comer',
+            'entrada_comer_zona_horaria' => 'Zona horaria entrada de comer',
             'entrada_comer_cadena' => 'Cadena entrada de comer',
             'entrada_comer_tienda' => 'Tienda entrada de comer',
             'entrada_comer_distancia_m' => 'Distancia entrada de comer m',
             'entrada_comer_estado' => 'Estado entrada de comer',
             'entrada_comer_foto_url' => 'Foto entrada de comer',
             'salida' => 'Salida',
+            'salida_zona_horaria' => 'Zona horaria salida',
             'salida_cadena' => 'Cadena salida',
             'salida_tienda' => 'Tienda salida',
             'salida_distancia_m' => 'Distancia salida m',
             'salida_estado' => 'Estado salida',
             'salida_foto_url' => 'Foto salida',
-            'verificacion_ubicacion_1' => 'Verificacion ubicacion 1',
+            'verificacion_ubicacion_1' => 'Verificación ubicación 1',
+            'verificacion_ubicacion_1_zona_horaria' => 'Zona horaria verificación 1',
             'verificacion_ubicacion_1_cadena' => 'Cadena verificacion 1',
             'verificacion_ubicacion_1_tienda' => 'Tienda verificacion 1',
             'verificacion_ubicacion_1_distancia_m' => 'Distancia verificacion 1 m',
             'verificacion_ubicacion_1_estado' => 'Estado verificacion 1',
             'verificacion_ubicacion_1_foto_url' => 'Foto verificacion 1',
-            'verificacion_ubicacion_2' => 'Verificacion ubicacion 2',
+            'verificacion_ubicacion_2' => 'Verificación ubicación 2',
+            'verificacion_ubicacion_2_zona_horaria' => 'Zona horaria verificación 2',
             'verificacion_ubicacion_2_cadena' => 'Cadena verificacion 2',
             'verificacion_ubicacion_2_tienda' => 'Tienda verificacion 2',
             'verificacion_ubicacion_2_distancia_m' => 'Distancia verificacion 2 m',
             'verificacion_ubicacion_2_estado' => 'Estado verificacion 2',
             'verificacion_ubicacion_2_foto_url' => 'Foto verificacion 2',
-            'verificacion_ubicacion_3' => 'Verificacion ubicacion 3',
+            'verificacion_ubicacion_3' => 'Verificación ubicación 3',
+            'verificacion_ubicacion_3_zona_horaria' => 'Zona horaria verificación 3',
             'verificacion_ubicacion_3_cadena' => 'Cadena verificacion 3',
             'verificacion_ubicacion_3_tienda' => 'Tienda verificacion 3',
             'verificacion_ubicacion_3_distancia_m' => 'Distancia verificacion 3 m',
@@ -2140,9 +2170,7 @@ try {
             }
         }
         $dailyRows = build_daily_check_rows($stmt->fetchAll());
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="reporte_checadas.csv"');
-        $out = fopen('php://output', 'w');
+        $out = begin_csv_download('reporte_checadas.csv');
         fputcsv($out, array_map(fn($key) => $columns[$key], $selected));
         foreach ($dailyRows as $row) {
             fputcsv($out, array_map(fn($key) => $row[$key] ?? '', $selected));
@@ -2176,7 +2204,7 @@ try {
         }
         $stmt = $pdo->prepare(
             "SELECT u.full_name AS promotor, u.rfc, u.employee_number, u.email, sup.full_name AS supervisor,
-                    s.chain AS cadena, s.name AS tienda, s.address AS direccion, c.checked_at AS ingreso,
+                    s.chain AS cadena, s.name AS tienda, s.address AS direccion, s.timezone AS store_timezone, c.checked_at AS ingreso,
                     c.distance_meters, c.status
              FROM check_records c
              JOIN users u ON u.id = c.user_id
@@ -2186,12 +2214,10 @@ try {
              ORDER BY u.full_name ASC"
         );
         $stmt->execute($params);
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="promotores_que_si_checaron.csv"');
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'distancia_m', 'estado']);
+        $out = begin_csv_download('promotores_que_si_checaron.csv');
+        fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'zona_horaria', 'distancia_m', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
-            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], $row['ingreso'], $row['distance_meters'], status_label((string)$row['status'])]);
+            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], check_datetime_label($row['ingreso'] ?? '', $row['store_timezone'] ?? null), timezone_label($row['store_timezone'] ?? null), $row['distance_meters'], status_label((string)$row['status'])]);
         }
         exit;
     }
@@ -2220,9 +2246,7 @@ try {
              ORDER BY sup.full_name, u.full_name"
         );
         $stmt->execute($params);
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="promotores_que_no_checaron.csv"');
-        $out = fopen('php://output', 'w');
+        $out = begin_csv_download('promotores_que_no_checaron.csv');
         fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
             fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], 'Sin ingreso']);
@@ -2247,9 +2271,7 @@ try {
              ORDER BY sup.full_name, u.full_name"
         );
         $stmt->execute($params);
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="promotores_por_supervisor.csv"');
-        $out = fopen('php://output', 'w');
+        $out = begin_csv_download('promotores_por_supervisor.csv');
         fputcsv($out, ['promotor', 'rfc', 'email', 'numero_empleado', 'supervisor', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
             fputcsv($out, $row);
