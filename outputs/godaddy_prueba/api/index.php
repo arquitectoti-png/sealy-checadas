@@ -555,6 +555,31 @@ function check_datetime_label(?string $value, ?string $timezone): string
     return $value . ' (' . timezone_label($timezone) . ')';
 }
 
+function convert_server_datetime_to_store(?string $value, ?string $timezone): string
+{
+    if (!$value) {
+        return '';
+    }
+    try {
+        $date = new DateTimeImmutable($value, new DateTimeZone('America/Mexico_City'));
+        return local_datetime($date->getTimestamp(), $timezone ?: 'America/Mexico_City');
+    } catch (Throwable $e) {
+        return $value;
+    }
+}
+
+function display_check_datetime(array $row): string
+{
+    $source = (string)($row['source'] ?? '');
+    if ($source === 'offline_sync') {
+        return (string)($row['checked_at'] ?: ($row['captured_at_device'] ?? ''));
+    }
+    return convert_server_datetime_to_store(
+        (string)($row['created_at'] ?? $row['checked_at'] ?? ''),
+        (string)($row['store_timezone'] ?? 'America/Mexico_City')
+    );
+}
+
 function can_manage_staff_user(PDO $pdo, array $user, int $targetId): array
 {
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
@@ -838,7 +863,7 @@ function attach_work_times(array $rows): array
     foreach ($rows as $index => $row) {
         $key = $row['user_id'] . '|' . $row['check_date'];
         $groups[$key]['indexes'][] = $index;
-        $groups[$key]['phases'][$row['phase']] = $row['checked_at'];
+        $groups[$key]['phases'][$row['phase']] = $row['display_checked_at'] ?? $row['checked_at'];
     }
 
     foreach ($groups as $group) {
@@ -928,7 +953,8 @@ function build_daily_check_rows(array $rows): array
             ];
         }
         $phase = $row['phase'];
-        $daily[$key][$phase] = check_datetime_label($row['checked_at'] ?? '', $row['store_timezone'] ?? null);
+        $displayCheckedAt = $row['display_checked_at'] ?? display_check_datetime($row);
+        $daily[$key][$phase] = check_datetime_label($displayCheckedAt, $row['store_timezone'] ?? null);
         $daily[$key][$phase . '_zona_horaria'] = timezone_label($row['store_timezone'] ?? null);
         $daily[$key][$phase . '_cadena'] = $row['store_chain'] ?? '';
         $daily[$key][$phase . '_tienda'] = $row['store_name'] ?? '';
@@ -1510,7 +1536,7 @@ try {
         }
 
         $stmt = $pdo->prepare(
-            "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device,
+            "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device, c.created_at,
                     c.latitude, c.longitude, c.distance_meters, c.photo_path, c.source, c.status,
                     u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
                     s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone
@@ -1523,7 +1549,11 @@ try {
              LIMIT 500"
         );
         $stmt->execute($params);
-        response_json(['items' => build_daily_check_rows($stmt->fetchAll())]);
+        $rows = array_map(function ($row) {
+            $row['display_checked_at'] = display_check_datetime($row);
+            return $row;
+        }, $stmt->fetchAll());
+        response_json(['items' => build_daily_check_rows($rows)]);
     }
 
     if ($method === 'GET' && $path === '/admin/stores') {
@@ -2095,7 +2125,7 @@ try {
         $stmt = $pdo->prepare(
             "SELECT c.user_id, c.check_date, u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
                     s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone,
-                    c.phase, c.checked_at, c.distance_meters, c.status, c.source, c.photo_path
+                    c.phase, c.checked_at, c.captured_at_device, c.created_at, c.distance_meters, c.status, c.source, c.photo_path
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2169,7 +2199,11 @@ try {
                 $selected = array_keys($columns);
             }
         }
-        $dailyRows = build_daily_check_rows($stmt->fetchAll());
+        $rows = array_map(function ($row) {
+            $row['display_checked_at'] = display_check_datetime($row);
+            return $row;
+        }, $stmt->fetchAll());
+        $dailyRows = build_daily_check_rows($rows);
         $out = begin_csv_download('reporte_checadas.csv');
         fputcsv($out, array_map(fn($key) => $columns[$key], $selected));
         foreach ($dailyRows as $row) {
@@ -2204,8 +2238,8 @@ try {
         }
         $stmt = $pdo->prepare(
             "SELECT u.full_name AS promotor, u.rfc, u.employee_number, u.email, sup.full_name AS supervisor,
-                    s.chain AS cadena, s.name AS tienda, s.address AS direccion, s.timezone AS store_timezone, c.checked_at AS ingreso,
-                    c.distance_meters, c.status
+                    s.chain AS cadena, s.name AS tienda, s.address AS direccion, s.timezone AS store_timezone,
+                    c.checked_at AS ingreso, c.captured_at_device, c.created_at, c.source, c.distance_meters, c.status
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2217,7 +2251,8 @@ try {
         $out = begin_csv_download('promotores_que_si_checaron.csv');
         fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'zona_horaria', 'distancia_m', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
-            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], check_datetime_label($row['ingreso'] ?? '', $row['store_timezone'] ?? null), timezone_label($row['store_timezone'] ?? null), $row['distance_meters'], status_label((string)$row['status'])]);
+            $row['checked_at'] = $row['ingreso'];
+            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], check_datetime_label(display_check_datetime($row), $row['store_timezone'] ?? null), timezone_label($row['store_timezone'] ?? null), $row['distance_meters'], status_label((string)$row['status'])]);
         }
         exit;
     }
