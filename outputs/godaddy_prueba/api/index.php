@@ -86,6 +86,12 @@ function ensure_runtime_schema(PDO $pdo): void
         $pdo->exec("ALTER TABLE stores ADD COLUMN timezone VARCHAR(64) NOT NULL DEFAULT 'America/Mexico_City' AFTER allowed_radius_meters");
         $pdo->exec("CREATE INDEX idx_stores_timezone ON stores (timezone)");
     }
+    $column = $pdo->query("SHOW COLUMNS FROM check_records LIKE 'timezone_at_check'")->fetch();
+    if (!$column) {
+        $pdo->exec("ALTER TABLE check_records ADD COLUMN timezone_at_check VARCHAR(64) NULL AFTER checked_at");
+        $pdo->exec("ALTER TABLE check_records ADD COLUMN timezone_offset_minutes SMALLINT NULL AFTER timezone_at_check");
+        $pdo->exec("CREATE INDEX idx_check_timezone_at_check ON check_records (timezone_at_check)");
+    }
     $column = $pdo->query("SHOW COLUMNS FROM users LIKE 'requires_location_verification'")->fetch();
     if (!$column) {
         $pdo->exec("ALTER TABLE users ADD COLUMN requires_location_verification TINYINT(1) NOT NULL DEFAULT 0 AFTER supervisor_id");
@@ -408,6 +414,30 @@ function first_available_timezone(array $candidates, string $fallback): string
     return $fallback;
 }
 
+function external_timezone_from_coordinates(float $lat, float $lng, int $timestamp): ?string
+{
+    global $config;
+    $key = trim((string)($config['google_timezone_api_key'] ?? getenv('GOOGLE_TIMEZONE_API_KEY') ?: ''));
+    if ($key === '') {
+        return null;
+    }
+    $url = 'https://maps.googleapis.com/maps/api/timezone/json?location=' .
+        rawurlencode($lat . ',' . $lng) .
+        '&timestamp=' . rawurlencode((string)$timestamp) .
+        '&key=' . rawurlencode($key);
+    $context = stream_context_create(['http' => ['timeout' => 4]]);
+    $json = @file_get_contents($url, false, $context);
+    if (!$json) {
+        return null;
+    }
+    $data = json_decode($json, true);
+    $timezone = (string)($data['timeZoneId'] ?? '');
+    if (($data['status'] ?? '') === 'OK' && $timezone !== '' && in_array($timezone, timezone_identifiers_list(), true)) {
+        return $timezone;
+    }
+    return null;
+}
+
 function infer_timezone_from_coordinates(float $lat, float $lng): string
 {
     // Baja California uses US Pacific DST rules statewide.
@@ -434,8 +464,18 @@ function infer_timezone_from_coordinates(float $lat, float $lng): string
         return 'America/Hermosillo';
     }
 
-    // Pacific zone: Baja California Sur, Sinaloa, Nayarit and nearby.
-    if ($lat >= 21.0 && $lat <= 28.5 && $lng >= -115.5 && $lng <= -104.0) {
+    // Pacific zone: Baja California Sur and Sinaloa.
+    if ($lat >= 22.0 && $lat <= 28.5 && $lng >= -115.5 && $lng <= -105.0) {
+        return 'America/Mazatlan';
+    }
+
+    // Bahia de Banderas, Nayarit follows Central time.
+    if ($lat >= 20.55 && $lat <= 20.95 && $lng >= -105.55 && $lng <= -105.05) {
+        return 'America/Mexico_City';
+    }
+
+    // Nayarit mostly belongs to Pacific time.
+    if ($lat >= 20.5 && $lat <= 23.2 && $lng >= -106.9 && $lng <= -104.2) {
         return 'America/Mazatlan';
     }
 
@@ -521,7 +561,16 @@ function normalize_timezone(?string $value): string
 function timezone_for_store(?string $value, float $lat, float $lng): string
 {
     $timezone = resolve_timezone($value);
-    return $timezone ?: infer_timezone_from_coordinates($lat, $lng);
+    return $timezone
+        ?: external_timezone_from_coordinates($lat, $lng, time())
+        ?: infer_timezone_from_coordinates($lat, $lng);
+}
+
+function timezone_offset_minutes(int $timestamp, string $timezone): int
+{
+    $timezone = resolve_timezone($timezone) ?: 'America/Mexico_City';
+    $date = (new DateTimeImmutable('@' . $timestamp))->setTimezone(new DateTimeZone($timezone));
+    return (int)($date->getOffset() / 60);
 }
 
 function timezone_label(?string $timezone): string
@@ -580,6 +629,9 @@ function convert_server_datetime_to_store(?string $value, ?string $timezone): st
 
 function display_check_datetime(array $row): string
 {
+    if (!empty($row['timezone_at_check'])) {
+        return (string)($row['checked_at'] ?: ($row['captured_at_device'] ?? ''));
+    }
     $source = (string)($row['source'] ?? '');
     if ($source === 'offline_sync') {
         return (string)($row['checked_at'] ?: ($row['captured_at_device'] ?? ''));
@@ -964,8 +1016,9 @@ function build_daily_check_rows(array $rows): array
         }
         $phase = $row['phase'];
         $displayCheckedAt = $row['display_checked_at'] ?? display_check_datetime($row);
-        $daily[$key][$phase] = check_datetime_label($displayCheckedAt, $row['store_timezone'] ?? null);
-        $daily[$key][$phase . '_zona_horaria'] = timezone_label($row['store_timezone'] ?? null);
+        $phaseTimezone = $row['timezone_at_check'] ?? $row['store_timezone'] ?? null;
+        $daily[$key][$phase] = check_datetime_label($displayCheckedAt, $phaseTimezone);
+        $daily[$key][$phase . '_zona_horaria'] = timezone_label($phaseTimezone);
         $daily[$key][$phase . '_cadena'] = $row['store_chain'] ?? '';
         $daily[$key][$phase . '_tienda'] = $row['store_name'] ?? '';
         $daily[$key][$phase . '_distancia_m'] = $row['distance_meters'] ?? '';
@@ -1008,9 +1061,11 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
     $serverNow = time();
     $timeDriftSeconds = abs($serverNow - $timestamp);
     $futureDriftSeconds = $timestamp - $serverNow;
+    $timezoneTimestamp = $source === 'offline_sync' ? $timestamp : $serverNow;
     $capturedAt = local_datetime($timestamp, $storeTimezone);
     $checkedAt = $source === 'offline_sync' ? $capturedAt : local_datetime($serverNow, $storeTimezone);
-    $checkDate = date('Y-m-d', strtotime($checkedAt));
+    $checkDate = substr($checkedAt, 0, 10);
+    $timezoneOffsetMinutes = timezone_offset_minutes($timezoneTimestamp, $storeTimezone);
     $gpsAccuracy = isset($data['gps_accuracy_meters']) ? (float)$data['gps_accuracy_meters'] : null;
     $gpsIsMocked = !empty($data['gps_is_mocked']);
     try {
@@ -1069,9 +1124,10 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
     try {
         $stmt = $pdo->prepare(
             "INSERT INTO check_records
-             (user_id, store_id, phase, check_date, checked_at, captured_at_device, latitude, longitude,
+             (user_id, store_id, phase, check_date, checked_at, timezone_at_check, timezone_offset_minutes,
+              captured_at_device, latitude, longitude,
               distance_meters, within_range, photo_path, device_id, source, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)"
         );
         $status = $source === 'offline_sync' ? 'synced' : 'valid';
         if ($futureDriftSeconds > 300 || ($source !== 'offline_sync' && $timeDriftSeconds > 900)) {
@@ -1083,6 +1139,8 @@ function insert_check(PDO $pdo, array $config, array $user, array $data, string 
             $phase,
             $checkDate,
             $checkedAt,
+            $storeTimezone,
+            $timezoneOffsetMinutes,
             $capturedAt,
             $lat,
             $lng,
@@ -1546,7 +1604,8 @@ try {
         }
 
         $stmt = $pdo->prepare(
-            "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at, c.captured_at_device, c.created_at,
+            "SELECT c.id, c.user_id, c.store_id, c.check_date, c.phase, c.checked_at,
+                    c.timezone_at_check, c.timezone_offset_minutes, c.captured_at_device, c.created_at,
                     c.latitude, c.longitude, c.distance_meters, c.photo_path, c.source, c.status,
                     u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
                     s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone
@@ -1731,7 +1790,7 @@ try {
                 continue;
             }
             $timezone = $timezoneInput === '' || strtoupper($timezoneInput) === 'AUTO' || strtoupper($timezoneInput) === 'AUTOMATICO'
-                ? infer_timezone_from_coordinates((float)$lat, (float)$lng)
+                ? timezone_for_store('AUTO', (float)$lat, (float)$lng)
                 : resolve_timezone($timezoneInput);
             if (!$timezone) {
                 $skipped++;
@@ -2135,7 +2194,8 @@ try {
         $stmt = $pdo->prepare(
             "SELECT c.user_id, c.check_date, u.full_name AS staff_name, u.rfc AS staff_rfc, sup.full_name AS supervisor_name,
                     s.name AS store_name, s.chain AS store_chain, s.timezone AS store_timezone,
-                    c.phase, c.checked_at, c.captured_at_device, c.created_at, c.distance_meters, c.status, c.source, c.photo_path
+                    c.phase, c.checked_at, c.timezone_at_check, c.timezone_offset_minutes,
+                    c.captured_at_device, c.created_at, c.distance_meters, c.status, c.source, c.photo_path
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2249,7 +2309,8 @@ try {
         $stmt = $pdo->prepare(
             "SELECT u.full_name AS promotor, u.rfc, u.employee_number, u.email, sup.full_name AS supervisor,
                     s.chain AS cadena, s.name AS tienda, s.address AS direccion, s.timezone AS store_timezone,
-                    c.checked_at AS ingreso, c.captured_at_device, c.created_at, c.source, c.distance_meters, c.status
+                    c.checked_at AS ingreso, c.timezone_at_check, c.timezone_offset_minutes,
+                    c.captured_at_device, c.created_at, c.source, c.distance_meters, c.status
              FROM check_records c
              JOIN users u ON u.id = c.user_id
              LEFT JOIN users sup ON sup.id = u.supervisor_id
@@ -2262,7 +2323,8 @@ try {
         fputcsv($out, ['fecha', 'promotor', 'rfc', 'numero_empleado', 'email', 'supervisor', 'cadena', 'tienda', 'direccion', 'ingreso', 'zona_horaria', 'distancia_m', 'estado']);
         foreach ($stmt->fetchAll() as $row) {
             $row['checked_at'] = $row['ingreso'];
-            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], check_datetime_label(display_check_datetime($row), $row['store_timezone'] ?? null), timezone_label($row['store_timezone'] ?? null), $row['distance_meters'], status_label((string)$row['status'])]);
+            $rowTimezone = $row['timezone_at_check'] ?? $row['store_timezone'] ?? null;
+            fputcsv($out, [$date, $row['promotor'], $row['rfc'], $row['employee_number'], $row['email'], $row['supervisor'], $row['cadena'], $row['tienda'], $row['direccion'], check_datetime_label(display_check_datetime($row), $rowTimezone), timezone_label($rowTimezone), $row['distance_meters'], status_label((string)$row['status'])]);
         }
         exit;
     }

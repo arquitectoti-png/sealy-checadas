@@ -95,6 +95,8 @@ $schema = [
                  'verificacion_ubicacion_1', 'verificacion_ubicacion_2', 'verificacion_ubicacion_3') NOT NULL,
       check_date DATE NOT NULL,
       checked_at DATETIME NOT NULL,
+      timezone_at_check VARCHAR(64) NULL,
+      timezone_offset_minutes SMALLINT NULL,
       captured_at_device DATETIME NULL,
       latitude DECIMAL(10, 7) NOT NULL,
       longitude DECIMAL(10, 7) NOT NULL,
@@ -110,6 +112,7 @@ $schema = [
       UNIQUE KEY uq_check_user_date_phase (user_id, check_date, phase),
       INDEX idx_check_date (check_date),
       INDEX idx_check_store_date (store_id, check_date),
+      INDEX idx_check_timezone_at_check (timezone_at_check),
       INDEX idx_check_status (status),
       INDEX idx_check_user_date (user_id, check_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",

@@ -156,6 +156,18 @@ function assert_safe_migration(string $sql, bool $allowDestructive): void
     }
 }
 
+function is_ignorable_additive_duplicate(Throwable $e, string $statement): bool
+{
+    $message = $e->getMessage();
+    $isAdditive = preg_match('/\bADD\s+COLUMN\b|\bCREATE\s+INDEX\b/i', $statement) === 1;
+    if (!$isAdditive) {
+        return false;
+    }
+    return stripos($message, 'Duplicate column') !== false
+        || stripos($message, 'Duplicate key name') !== false
+        || stripos($message, 'already exists') !== false;
+}
+
 ensure_migration_table($pdo);
 
 $migrationsDir = dirname(__DIR__) . '/database/migrations';
@@ -216,7 +228,13 @@ foreach ($pending as $migration) {
 
     try {
         foreach ($statements as $statement) {
-            $pdo->exec($statement);
+            try {
+                $pdo->exec($statement);
+            } catch (Throwable $e) {
+                if (!is_ignorable_additive_duplicate($e, $statement)) {
+                    throw $e;
+                }
+            }
         }
         $insert = $pdo->prepare("INSERT INTO schema_migrations (migration, checksum) VALUES (?, ?)");
         $insert->execute([$migration['name'], $migration['checksum']]);
