@@ -573,6 +573,11 @@ function timezone_offset_minutes(int $timestamp, string $timezone): int
     return (int)($date->getOffset() / 60);
 }
 
+function admin_today(): string
+{
+    return (new DateTimeImmutable('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
+}
+
 function timezone_label(?string $timezone): string
 {
     $timezone = $timezone ?: 'America/Mexico_City';
@@ -1415,7 +1420,7 @@ try {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
 
-        $date = $_GET['date'] ?? date('Y-m-d');
+        $date = $_GET['date'] ?? admin_today();
         $staffFilter = '';
 
         $stmt = $pdo->prepare("SELECT COUNT(*) total FROM users u WHERE u.role = 'staff' AND u.status = 'active' $staffFilter");
@@ -2285,7 +2290,7 @@ try {
     if ($method === 'GET' && $path === '/admin/reports/checked.csv') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
-        $date = $_GET['date'] ?? date('Y-m-d');
+        $date = $_GET['date'] ?? admin_today();
         $where = ["c.check_date = ?", "c.phase = 'ingreso'"];
         $params = [$date];
         if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {
@@ -2332,7 +2337,7 @@ try {
     if ($method === 'GET' && $path === '/admin/reports/not-checked.csv') {
         $user = auth_user($pdo);
         require_role($user, ['admin', 'supervisor']);
-        $date = $_GET['date'] ?? date('Y-m-d');
+        $date = $_GET['date'] ?? admin_today();
         $where = ["u.role = 'staff'", "u.status = 'active'", "c.id IS NULL"];
         $params = [$date];
         if (isset($_GET['supervisor_id']) && $_GET['supervisor_id'] !== '' && $user['role'] === 'admin') {

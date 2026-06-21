@@ -369,7 +369,14 @@
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
-    function today() { return new Date().toISOString().slice(0, 10); }
+    function today() {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Mexico_City",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(new Date());
+    }
     function firstDay() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
     function roleLabel(role) { return role === "staff" ? "Promotor" : role === "supervisor" ? "Supervisor" : "Administrador"; }
     function isAdmin() { return user && user.role === "admin"; }
