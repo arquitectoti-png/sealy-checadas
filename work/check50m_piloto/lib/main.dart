@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -97,27 +97,34 @@ class _AppShellState extends State<AppShell> {
         _user = AppUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
       }
       if (bootstrapJson != null) {
-        _bootstrap = MobileBootstrap.fromJson(jsonDecode(bootstrapJson) as Map<String, dynamic>);
+        _bootstrap = MobileBootstrap.fromJson(
+            jsonDecode(bootstrapJson) as Map<String, dynamic>);
       }
       if (queueJson != null) {
         final list = jsonDecode(queueJson) as List<dynamic>;
-        _queue = list.map((item) => PendingCheck.fromJson(item as Map<String, dynamic>)).toList();
+        _queue = list
+            .map((item) => PendingCheck.fromJson(item as Map<String, dynamic>))
+            .toList();
         _purgeExpiredRejectedChecks();
       }
     });
   }
 
-  String get _apiBaseUrl => _apiController.text.trim().replaceAll(RegExp(r'/+$'), '');
+  String get _apiBaseUrl =>
+      _apiController.text.trim().replaceAll(RegExp(r'/+$'), '');
 
   bool get _isLoggedIn => _token != null && _user != null;
-  List<PendingCheck> get _pendingQueue => _queue.where((item) => item.rejectedAt == null).toList();
-  List<PendingCheck> get _rejectedQueue => _queue.where((item) => item.rejectedAt != null).toList();
+  List<PendingCheck> get _pendingQueue =>
+      _queue.where((item) => item.rejectedAt == null).toList();
+  List<PendingCheck> get _rejectedQueue =>
+      _queue.where((item) => item.rejectedAt != null).toList();
 
   Future<bool> _isOnline() async {
     try {
       final uri = Uri.parse(_apiBaseUrl);
       final host = uri.host.isEmpty ? 'google.com' : uri.host;
-      final result = await InternetAddress.lookup(host).timeout(const Duration(seconds: 5));
+      final result = await InternetAddress.lookup(host)
+          .timeout(const Duration(seconds: 5));
       return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
     } catch (_) {
       return false;
@@ -143,31 +150,43 @@ class _AppShellState extends State<AppShell> {
             .post(uri, headers: headers, body: jsonEncode(body ?? {}))
             .timeout(const Duration(seconds: 30));
       } else {
-        response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 30));
+        response = await http
+            .get(uri, headers: headers)
+            .timeout(const Duration(seconds: 30));
       }
     } on SocketException {
-      throw ApiException('Sin datos o sin internet. Conectate e intenta de nuevo.', 0);
+      throw ApiException(
+          'Sin datos o sin internet. Conectate e intenta de nuevo.', 0);
     } on TimeoutException {
-      throw ApiException('La conexion tardo demasiado. Revisa tus datos o internet.', 0);
+      throw ApiException(
+          'La conexion tardo demasiado. Revisa tus datos o internet.', 0);
     } on http.ClientException {
-      throw ApiException('No se pudo conectar con el servidor. Revisa tus datos o internet.', 0);
+      throw ApiException(
+          'No se pudo conectar con el servidor. Revisa tus datos o internet.',
+          0);
     }
 
     Map<String, dynamic> decoded;
     try {
-      final parsed = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+      final parsed = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body);
       if (parsed is! Map<String, dynamic>) {
         throw const FormatException('Respuesta no valida');
       }
       decoded = parsed;
     } on FormatException {
-      throw ApiException('Sin datos o servidor no disponible. Conectate e intenta de nuevo.', response.statusCode);
+      throw ApiException(
+          'Sin datos o servidor no disponible. Conectate e intenta de nuevo.',
+          response.statusCode);
     }
 
     final ok = response.statusCode >= 200 && response.statusCode < 300;
     if (!ok && !(allow422 && response.statusCode == 422)) {
       throw ApiException(
-        decoded['message']?.toString() ?? decoded['error']?.toString() ?? 'No se pudo completar la solicitud ${response.statusCode}',
+        decoded['message']?.toString() ??
+            decoded['error']?.toString() ??
+            'No se pudo completar la solicitud ${response.statusCode}',
         response.statusCode,
       );
     }
@@ -211,7 +230,8 @@ class _AppShellState extends State<AppShell> {
   Future<void> _changePassword() async {
     await _runBusy(() async {
       if (_newPasswordController.text.length < 8) {
-        throw ApiException('La nueva contraseña debe tener al menos 8 caracteres.', 400);
+        throw ApiException(
+            'La nueva contraseña debe tener al menos 8 caracteres.', 400);
       }
       await _request('/me/change-password', method: 'POST', body: {
         'current_password': _currentPasswordController.text,
@@ -224,7 +244,8 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _loadBootstrap() async {
-    final data = await _request('/me/mobile-bootstrap');
+    final data =
+        await _request('/me/mobile-bootstrap?date=${_localDateOnly()}');
     final bootstrap = MobileBootstrap.fromJson(data);
     setState(() {
       _bootstrap = bootstrap;
@@ -236,7 +257,8 @@ class _AppShellState extends State<AppShell> {
   Future<void> _makeCheck() async {
     await _runBusy(() async {
       final availablePhases = _availablePhaseOptions;
-      final selectablePhases = availablePhases.where((item) => item.enabled).toList();
+      final selectablePhases =
+          availablePhases.where((item) => item.enabled).toList();
       if (selectablePhases.isEmpty) {
         _checkMessage = 'Ya registraste las checadas requeridas de hoy.';
         return;
@@ -247,15 +269,18 @@ class _AppShellState extends State<AppShell> {
       final position = await _currentPosition();
       final mockLocation = position.isMocked;
       if (mockLocation) {
-        _checkMessage = 'Ubicacion simulada detectada. Desactiva apps de GPS falso.';
+        _checkMessage =
+            'Ubicacion simulada detectada. Desactiva apps de GPS falso.';
         return;
       }
       if (position.accuracy > 75) {
-        _checkMessage = 'GPS impreciso (${position.accuracy.toStringAsFixed(1)} m). Intenta en area abierta.';
+        _checkMessage =
+            'GPS impreciso (${position.accuracy.toStringAsFixed(1)} m). Intenta en area abierta.';
         return;
       }
       if (_deviceClockLooksSuspicious()) {
-        _checkMessage = 'Hora del dispositivo sospechosa. Activa fecha y hora automaticas.';
+        _checkMessage =
+            'Hora del dispositivo sospechosa. Activa fecha y hora automaticas.';
         return;
       }
       final nearest = _nearestStore(position);
@@ -278,7 +303,8 @@ class _AppShellState extends State<AppShell> {
         throw ApiException('La foto es obligatoria.', 400);
       }
 
-      final photoBase64 = 'data:image/jpeg;base64,${base64Encode(await image.readAsBytes())}';
+      final photoBase64 =
+          'data:image/jpeg;base64,${base64Encode(await image.readAsBytes())}';
       final pending = PendingCheck(
         localId: DateTime.now().microsecondsSinceEpoch.toString(),
         storeId: store.id,
@@ -320,7 +346,8 @@ class _AppShellState extends State<AppShell> {
         _checkMessage =
             'Bloqueado: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m de la tienda. Radio ${data['allowed_radius_meters']} m.';
       } else {
-        _checkMessage = 'Checada registrada. Distancia: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m.';
+        _checkMessage =
+            'Checada registrada. Distancia: ${_readDouble(data['distance_meters']).toStringAsFixed(1)} m.';
         await _loadBootstrap();
       }
     });
@@ -341,7 +368,8 @@ class _AppShellState extends State<AppShell> {
       final syncable = _queue.where((item) => item.rejectedAt == null).toList();
       if (syncable.isEmpty) {
         await _saveQueue();
-        _syncMessage = 'No hay pendientes por reenviar. Los rechazados se conservaran 48 horas.';
+        _syncMessage =
+            'No hay pendientes por reenviar. Los rechazados se conservaran 48 horas.';
         return;
       }
 
@@ -360,34 +388,43 @@ class _AppShellState extends State<AppShell> {
           .toList();
       final rejectedById = {
         for (final item in rejectedItems)
-          if (item['local_id'] != null) item['local_id'].toString(): item['message']?.toString() ?? 'Rechazada'
+          if (item['local_id'] != null)
+            item['local_id'].toString():
+                item['message']?.toString() ?? 'Rechazada'
       };
 
       _queue = _queue
           .where((item) => !syncedIds.contains(item.localId))
-          .map((item) => rejectedById.containsKey(item.localId) ? item.markRejected(rejectedById[item.localId]!) : item)
+          .map((item) => rejectedById.containsKey(item.localId)
+              ? item.markRejected(rejectedById[item.localId]!)
+              : item)
           .toList();
       _purgeExpiredRejectedChecks();
       await _saveQueue();
       await _loadBootstrap();
 
-      _syncMessage = 'Sincronizados: ${syncedIds.length}. Rechazados: ${rejectedItems.length}.';
+      _syncMessage =
+          'Sincronizados: ${syncedIds.length}. Rechazados: ${rejectedItems.length}.';
     });
   }
 
   Future<void> _loadRecords() async {
     await _runBusy(() async {
       if (!await _isOnline()) {
-        _recordsMessage = 'Sin datos o sin internet. Conectate para actualizar el historial.';
+        _recordsMessage =
+            'Sin datos o sin internet. Conectate para actualizar el historial.';
         return;
       }
       final now = DateTime.now();
-      final start = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-01';
+      final start =
+          '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-01';
       final end =
           '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final data = await _request('/checks/my?start=$start&end=$end');
       final items = (data['items'] ?? []) as List<dynamic>;
-      _records = items.map((item) => CheckRecord.fromJson(item as Map<String, dynamic>)).toList();
+      _records = items
+          .map((item) => CheckRecord.fromJson(item as Map<String, dynamic>))
+          .toList();
       _recordsMessage = 'Historial actualizado.';
     });
   }
@@ -395,13 +432,18 @@ class _AppShellState extends State<AppShell> {
   Future<void> _loadNotices() async {
     await _runBusy(() async {
       if (!await _isOnline()) {
-        _noticesMessage = 'Sin datos o sin internet. Conectate para actualizar avisos.';
+        _noticesMessage =
+            'Sin datos o sin internet. Conectate para actualizar avisos.';
         return;
       }
       final data = await _request('/me/notices');
       final items = (data['items'] ?? []) as List<dynamic>;
-      _notices = items.map((item) => NoticeItem.fromJson(item as Map<String, dynamic>)).toList();
-      _noticesMessage = _notices.isEmpty ? 'No hay avisos disponibles.' : 'Avisos actualizados.';
+      _notices = items
+          .map((item) => NoticeItem.fromJson(item as Map<String, dynamic>))
+          .toList();
+      _noticesMessage = _notices.isEmpty
+          ? 'No hay avisos disponibles.'
+          : 'Avisos actualizados.';
     });
   }
 
@@ -413,7 +455,8 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _saveQueue() async {
     _purgeExpiredRejectedChecks();
-    await _prefs?.setString('queue', jsonEncode(_queue.map((item) => item.toJson()).toList()));
+    await _prefs?.setString(
+        'queue', jsonEncode(_queue.map((item) => item.toJson()).toList()));
     setState(() {});
   }
 
@@ -444,7 +487,8 @@ class _AppShellState extends State<AppShell> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
       throw ApiException('Permiso de ubicacion requerido.', 400);
     }
 
@@ -511,7 +555,8 @@ class _AppShellState extends State<AppShell> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset('assets/sealy.png', width: 34, height: 34, fit: BoxFit.contain),
+            Image.asset('assets/sealy.png',
+                width: 34, height: 34, fit: BoxFit.contain),
             const SizedBox(width: 10),
             const Text('Sealy'),
           ],
@@ -538,11 +583,15 @@ class _AppShellState extends State<AppShell> {
                 }
               },
               destinations: const [
-                NavigationDestination(icon: Icon(Icons.camera_alt_outlined), label: 'Checar'),
-                NavigationDestination(icon: Icon(Icons.history), label: 'Registros'),
+                NavigationDestination(
+                    icon: Icon(Icons.camera_alt_outlined), label: 'Checar'),
+                NavigationDestination(
+                    icon: Icon(Icons.history), label: 'Registros'),
                 NavigationDestination(icon: Icon(Icons.sync), label: 'Sync'),
-                NavigationDestination(icon: Icon(Icons.lock_outline), label: 'Clave'),
-                NavigationDestination(icon: Icon(Icons.campaign_outlined), label: 'Avisos'),
+                NavigationDestination(
+                    icon: Icon(Icons.lock_outline), label: 'Clave'),
+                NavigationDestination(
+                    icon: Icon(Icons.campaign_outlined), label: 'Avisos'),
               ],
             )
           : null,
@@ -561,7 +610,8 @@ class _AppShellState extends State<AppShell> {
               const SizedBox(height: 16),
               TextField(
                 controller: _loginController,
-                decoration: const InputDecoration(labelText: 'Correo, telefono o numero empleado'),
+                decoration: const InputDecoration(
+                    labelText: 'Correo, telefono o numero empleado'),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -585,7 +635,13 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildHome() {
-    final pages = [_buildCheckTab(), _buildRecordsTab(), _buildSyncTab(), _buildPasswordTab(), _buildNoticesTab()];
+    final pages = [
+      _buildCheckTab(),
+      _buildRecordsTab(),
+      _buildSyncTab(),
+      _buildPasswordTab(),
+      _buildNoticesTab()
+    ];
     return Stack(
       children: [
         pages[_tabIndex],
@@ -618,14 +674,19 @@ class _AppShellState extends State<AppShell> {
                   const Text('Ya registraste las checadas requeridas de hoy.')
                 else
                   DropdownButtonFormField<String>(
-                    initialValue: availablePhases.any((item) => item.key == _phase) ? _phase : availablePhases.first.key,
+                    initialValue:
+                        availablePhases.any((item) => item.key == _phase)
+                            ? _phase
+                            : availablePhases.first.key,
                     decoration: const InputDecoration(labelText: 'Fase'),
                     items: availablePhases
                         .map(
                           (item) => DropdownMenuItem(
                             value: item.key,
                             enabled: item.enabled,
-                            child: Text(item.enabled ? item.label : '${item.label} - pendiente anterior'),
+                            child: Text(item.enabled
+                                ? item.label
+                                : '${item.label} - pendiente anterior'),
                           ),
                         )
                         .toList(),
@@ -637,7 +698,8 @@ class _AppShellState extends State<AppShell> {
                   ),
                 const SizedBox(height: 12),
                 FilledButton.icon(
-                  onPressed: _busy || availablePhases.isEmpty ? null : _makeCheck,
+                  onPressed:
+                      _busy || availablePhases.isEmpty ? null : _makeCheck,
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Tomar foto y checar'),
                 ),
@@ -657,20 +719,35 @@ class _AppShellState extends State<AppShell> {
 
   List<PhaseOption> get _phaseOptions => [
         const PhaseOption('ingreso', 'Ingreso'),
-        const PhaseOption('salida_comer', 'Salida a comer', requiredPrevious: 'ingreso'),
-        const PhaseOption('entrada_comer', 'Entrada de comer', requiredPrevious: 'salida_comer'),
-        const PhaseOption('salida', 'Salida', requiredPrevious: 'entrada_comer'),
+        const PhaseOption('salida_comer', 'Salida a comer',
+            requiredPrevious: 'ingreso'),
+        const PhaseOption('entrada_comer', 'Entrada de comer',
+            requiredPrevious: 'salida_comer'),
+        const PhaseOption('salida', 'Salida',
+            requiredPrevious: 'entrada_comer'),
         if (_bootstrap?.requiresLocationVerification == true) ...const [
-          PhaseOption('verificacion_ubicacion_1', 'Verificación de ubicación 1', verification: true),
-          PhaseOption('verificacion_ubicacion_2', 'Verificación de ubicación 2', verification: true),
-          PhaseOption('verificacion_ubicacion_3', 'Verificación de ubicación 3', verification: true),
+          PhaseOption('verificacion_ubicacion_1', 'Verificación de ubicación 1',
+              verification: true),
+          PhaseOption('verificacion_ubicacion_2', 'Verificación de ubicación 2',
+              verification: true),
+          PhaseOption('verificacion_ubicacion_3', 'Verificación de ubicación 3',
+              verification: true),
         ],
       ];
 
   Set<String> get _checkedPhasesToday {
-    final checked = (_bootstrap?.todayChecks ?? []).map((check) => check.phase).toSet();
-    checked.addAll(_pendingQueue.where((item) => _isToday(item.capturedAtDevice)).map((item) => item.phase));
+    final checked = _todayChecks.map((check) => check.phase).toSet();
+    checked.addAll(_pendingQueue
+        .where((item) => _isToday(item.capturedAtDevice))
+        .map((item) => item.phase));
     return checked;
+  }
+
+  String _localDateOnly([DateTime? value]) {
+    final date = value ?? DateTime.now();
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
   }
 
   bool _isToday(String isoDate) {
@@ -679,27 +756,42 @@ class _AppShellState extends State<AppShell> {
       return false;
     }
     final now = DateTime.now();
-    return parsed.year == now.year && parsed.month == now.month && parsed.day == now.day;
+    return parsed.year == now.year &&
+        parsed.month == now.month &&
+        parsed.day == now.day;
+  }
+
+  List<TodayCheck> get _todayChecks {
+    final today = _localDateOnly();
+    return (_bootstrap?.todayChecks ?? [])
+        .where((check) => check.checkDate.isNotEmpty
+            ? check.checkDate == today
+            : _isToday(check.checkedAt))
+        .toList();
   }
 
   List<PhaseOption> get _availablePhaseOptions {
     final checked = _checkedPhasesToday;
     return _phaseOptions
         .where((item) => !checked.contains(item.key))
-        .map((item) => item.copyWith(enabled: item.requiredPrevious == null || checked.contains(item.requiredPrevious)))
+        .map((item) => item.copyWith(
+            enabled: item.requiredPrevious == null ||
+                checked.contains(item.requiredPrevious)))
         .toList();
   }
 
   void _syncSelectedPhaseWithToday() {
     final available = _availablePhaseOptions;
     final selectable = available.where((item) => item.enabled).toList();
-    if (selectable.isNotEmpty && (!selectable.any((item) => item.key == _phase) || _checkedPhasesToday.contains(_phase))) {
+    if (selectable.isNotEmpty &&
+        (!selectable.any((item) => item.key == _phase) ||
+            _checkedPhasesToday.contains(_phase))) {
       _phase = selectable.first.key;
     }
   }
 
   Widget _buildTodayChecks() {
-    final checks = _bootstrap?.todayChecks ?? [];
+    final checks = _todayChecks;
     if (checks.isEmpty) {
       return const Text('Sin checadas registradas hoy.');
     }
@@ -711,7 +803,8 @@ class _AppShellState extends State<AppShell> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.check_circle_outline),
               title: Text(_phaseLabel(check.phase)),
-              subtitle: Text('${check.checkedAt} - ${_statusLabel(check.status)}'),
+              subtitle:
+                  Text('${check.checkedAt} - ${_statusLabel(check.status)}'),
             ),
           )
           .toList(),
@@ -731,7 +824,8 @@ class _AppShellState extends State<AppShell> {
         Text(_recordsMessage),
         const SizedBox(height: 12),
         if (_records.isEmpty)
-          const _InfoCard(title: 'Historial', child: Text('Sin registros cargados.'))
+          const _InfoCard(
+              title: 'Historial', child: Text('Sin registros cargados.'))
         else
           ..._records.map(
             (record) => _InfoCard(
@@ -746,7 +840,9 @@ class _AppShellState extends State<AppShell> {
                   if (record.photoUrl.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: _token == null ? null : () => _showRecordPhoto(record),
+                      onPressed: _token == null
+                          ? null
+                          : () => _showRecordPhoto(record),
                       icon: const Icon(Icons.photo),
                       label: const Text('Ver foto'),
                     ),
@@ -770,7 +866,8 @@ class _AppShellState extends State<AppShell> {
             children: [
               Text('${_pendingQueue.length} checada(s) pendientes.'),
               const SizedBox(height: 8),
-              const Text('Usa esta seccion solo cuando necesites reenviar checadas pendientes.'),
+              const Text(
+                  'Usa esta seccion solo cuando necesites reenviar checadas pendientes.'),
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: _busy ? null : _syncQueue,
@@ -785,7 +882,8 @@ class _AppShellState extends State<AppShell> {
         ..._pendingQueue.map(
           (item) => _InfoCard(
             title: _phaseLabel(item.phase),
-            child: Text('${item.capturedAtDevice}\nDistancia cliente: ${item.distanceMetersClient.toStringAsFixed(1)} m'),
+            child: Text(
+                '${item.capturedAtDevice}\nDistancia cliente: ${item.distanceMetersClient.toStringAsFixed(1)} m'),
           ),
         ),
         ..._rejectedQueue.map(
@@ -814,13 +912,15 @@ class _AppShellState extends State<AppShell> {
             children: [
               TextField(
                 controller: _currentPasswordController,
-                decoration: const InputDecoration(labelText: 'Contraseña actual'),
+                decoration:
+                    const InputDecoration(labelText: 'Contraseña actual'),
                 obscureText: true,
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _newPasswordController,
-                decoration: const InputDecoration(labelText: 'Nueva contraseña'),
+                decoration:
+                    const InputDecoration(labelText: 'Nueva contraseña'),
                 obscureText: true,
               ),
               const SizedBox(height: 16),
@@ -851,7 +951,8 @@ class _AppShellState extends State<AppShell> {
         Text(_noticesMessage),
         const SizedBox(height: 12),
         if (_notices.isEmpty)
-          const _InfoCard(title: 'Avisos', child: Text('Sin avisos disponibles.'))
+          const _InfoCard(
+              title: 'Avisos', child: Text('Sin avisos disponibles.'))
         else
           ..._notices.map(
             (notice) => _InfoCard(
@@ -866,11 +967,13 @@ class _AppShellState extends State<AppShell> {
                       '$_apiBaseUrl${notice.imageUrl}',
                       headers: {'Authorization': 'Bearer $_token'},
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Text('No se pudo cargar la imagen.'),
+                      errorBuilder: (_, __, ___) =>
+                          const Text('No se pudo cargar la imagen.'),
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Text(notice.publishedAt, style: Theme.of(context).textTheme.bodySmall),
+                  Text(notice.publishedAt,
+                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
@@ -893,7 +996,8 @@ class _AppShellState extends State<AppShell> {
         store.longitude,
       );
       final candidate = NearestStore(store: store, distanceMeters: distance);
-      if (nearest == null || candidate.distanceMeters < nearest.distanceMeters) {
+      if (nearest == null ||
+          candidate.distanceMeters < nearest.distanceMeters) {
         nearest = candidate;
       }
     }
@@ -947,8 +1051,11 @@ class _AppShellState extends State<AppShell> {
     }
     final nearest = _lastNearestStore;
     if (nearest != null) {
-      final inside = nearest.distanceMeters <= nearest.store.allowedRadiusMeters;
-      final storeName = nearest.store.chain.isEmpty ? nearest.store.name : '${nearest.store.chain} - ${nearest.store.name}';
+      final inside =
+          nearest.distanceMeters <= nearest.store.allowedRadiusMeters;
+      final storeName = nearest.store.chain.isEmpty
+          ? nearest.store.name
+          : '${nearest.store.chain} - ${nearest.store.name}';
       return '$storeName es la más cercana: ${nearest.distanceMeters.toStringAsFixed(1)} m. ${inside ? "Dentro del radio" : "Fuera del radio"}.';
     }
     return '$count tienda(s) activas cargadas. Al checar se usará la tienda más cercana dentro de 50 m.';
@@ -1043,7 +1150,8 @@ class _FrontCameraCapturePageState extends State<FrontCameraCapturePage> {
         }
       }
       if (frontCamera == null) {
-        throw ApiException('Este equipo no reporta una cámara frontal disponible.', 400);
+        throw ApiException(
+            'Este equipo no reporta una cámara frontal disponible.', 400);
       }
 
       final controller = CameraController(
@@ -1143,7 +1251,8 @@ class _FrontCameraCapturePageState extends State<FrontCameraCapturePage> {
                   child: FilledButton.icon(
                     onPressed: _capturing ? null : _takePhoto,
                     icon: const Icon(Icons.camera_alt),
-                    label: Text(_capturing ? 'Tomando foto...' : 'Tomar selfie'),
+                    label:
+                        Text(_capturing ? 'Tomando foto...' : 'Tomar selfie'),
                   ),
                 ),
               ),
@@ -1213,7 +1322,8 @@ class StoreInfo {
       name: json['name']?.toString() ?? '',
       latitude: _readDouble(json['latitude']),
       longitude: _readDouble(json['longitude']),
-      allowedRadiusMeters: _readInt(json['allowed_radius_meters'], fallback: 50),
+      allowedRadiusMeters:
+          _readInt(json['allowed_radius_meters'], fallback: 50),
       timezone: json['timezone']?.toString() ?? 'America/Mexico_City',
     );
   }
@@ -1235,21 +1345,30 @@ class MobileBootstrap {
     required this.todayChecks,
     required this.requiresLocationVerification,
     this.serverTime,
+    this.todayDate,
   });
 
   final List<StoreInfo> activeStores;
   final List<TodayCheck> todayChecks;
   final bool requiresLocationVerification;
   final String? serverTime;
+  final String? todayDate;
 
   factory MobileBootstrap.fromJson(Map<String, dynamic> json) {
     final stores = (json['active_stores'] ?? []) as List<dynamic>;
     final checks = (json['today_checks'] ?? []) as List<dynamic>;
     return MobileBootstrap(
-      activeStores: stores.map((item) => StoreInfo.fromJson(item as Map<String, dynamic>)).toList(),
-      todayChecks: checks.map((item) => TodayCheck.fromJson(item as Map<String, dynamic>)).toList(),
-      requiresLocationVerification: json['requires_location_verification'] == true || json['requires_location_verification'] == 1,
+      activeStores: stores
+          .map((item) => StoreInfo.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      todayChecks: checks
+          .map((item) => TodayCheck.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      requiresLocationVerification:
+          json['requires_location_verification'] == true ||
+              json['requires_location_verification'] == 1,
       serverTime: json['server_time']?.toString(),
+      todayDate: json['today_date']?.toString(),
     );
   }
 
@@ -1258,21 +1377,28 @@ class MobileBootstrap {
         'today_checks': todayChecks.map((item) => item.toJson()).toList(),
         'requires_location_verification': requiresLocationVerification,
         'server_time': serverTime,
+        'today_date': todayDate,
       };
 }
 
 class TodayCheck {
-  TodayCheck({required this.phase, required this.checkedAt, required this.status});
+  TodayCheck(
+      {required this.phase,
+      required this.checkedAt,
+      required this.status,
+      required this.checkDate});
 
   final String phase;
   final String checkedAt;
   final String status;
+  final String checkDate;
 
   factory TodayCheck.fromJson(Map<String, dynamic> json) {
     return TodayCheck(
       phase: json['phase']?.toString() ?? '',
       checkedAt: json['checked_at']?.toString() ?? '',
       status: json['status']?.toString() ?? '',
+      checkDate: json['check_date']?.toString() ?? '',
     );
   }
 
@@ -1280,6 +1406,7 @@ class TodayCheck {
         'phase': phase,
         'checked_at': checkedAt,
         'status': status,
+        'check_date': checkDate,
       };
 }
 
@@ -1417,7 +1544,8 @@ class CheckRecord {
   final String mealTime;
   final String photoUrl;
 
-  String get storeLabel => storeChain.isEmpty ? storeName : '$storeChain - $storeName';
+  String get storeLabel =>
+      storeChain.isEmpty ? storeName : '$storeChain - $storeName';
 
   factory CheckRecord.fromJson(Map<String, dynamic> json) {
     return CheckRecord(
@@ -1522,4 +1650,3 @@ String _statusLabel(String status) {
       return status;
   }
 }
-

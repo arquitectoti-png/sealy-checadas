@@ -578,6 +578,15 @@ function admin_today(): string
     return (new DateTimeImmutable('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
 }
 
+function request_date_param(string $key, string $fallback): string
+{
+    $value = (string)($_GET[$key] ?? $fallback);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        response_json(['error' => 'Fecha invalida'], 400);
+    }
+    return $value;
+}
+
 function timezone_label(?string $timezone): string
 {
     $timezone = $timezone ?: 'America/Mexico_City';
@@ -1302,6 +1311,7 @@ try {
     if ($method === 'GET' && $path === '/me/mobile-bootstrap') {
         $user = auth_user($pdo);
         require_role($user, ['staff']);
+        $today = request_date_param('date', admin_today());
 
         $stmt = $pdo->prepare(
             "SELECT s.id, s.chain, s.name, s.address, s.latitude, s.longitude, s.allowed_radius_meters, s.timezone
@@ -1313,15 +1323,16 @@ try {
         $stores = $stmt->fetchAll();
 
         $stmt = $pdo->prepare(
-            "SELECT id, store_id, phase, checked_at, distance_meters, status
+            "SELECT id, store_id, phase, check_date, checked_at, distance_meters, status
              FROM check_records
-             WHERE user_id = ? AND check_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+             WHERE user_id = ? AND check_date = ?
              ORDER BY checked_at ASC"
         );
-        $stmt->execute([(int)$user['id']]);
+        $stmt->execute([(int)$user['id'], $today]);
 
         response_json([
             'server_time' => date('c'),
+            'today_date' => $today,
             'user' => [
                 'id' => (int)$user['id'],
                 'full_name' => $user['full_name'],
