@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.sealy.checadas"
+    namespace = "com.promosoluciones.checadas"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.sealy.checadas"
+        applicationId = "com.promosoluciones.checadas"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

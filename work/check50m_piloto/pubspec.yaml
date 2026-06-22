@@ -1,5 +1,5 @@
-name: sealy
-description: App movil Sealy para checadas con foto y GPS.
+name: promosoluciones
+description: App movil Promosoluciones para checadas con foto y GPS.
 publish_to: "none"
 version: 0.1.0+1
 
@@ -23,4 +23,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/sealy.png
+    - assets/promosoluciones_icon.png
+    - assets/promosoluciones_logo.png

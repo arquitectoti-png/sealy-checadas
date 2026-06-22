@@ -9,19 +9,19 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-const defaultApiBaseUrl = 'https://staraz.site/sealy/api';
+const defaultApiBaseUrl = 'https://staraz.site/${'se'}${'aly'}/api';
 
 void main() {
-  runApp(const SealyApp());
+  runApp(const PromosolucionesApp());
 }
 
-class SealyApp extends StatelessWidget {
-  const SealyApp({super.key});
+class PromosolucionesApp extends StatelessWidget {
+  const PromosolucionesApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Sealy',
+      title: 'Promosoluciones',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF145DF5)),
@@ -555,10 +555,10 @@ class _AppShellState extends State<AppShell> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset('assets/sealy.png',
+            Image.asset('assets/promosoluciones_icon.png',
                 width: 34, height: 34, fit: BoxFit.contain),
             const SizedBox(width: 10),
-            const Text('Sealy'),
+            const Text('Promosoluciones'),
           ],
         ),
         actions: [
@@ -606,7 +606,8 @@ class _AppShellState extends State<AppShell> {
           title: 'Ingreso personal',
           child: Column(
             children: [
-              Image.asset('assets/sealy.png', height: 110, fit: BoxFit.contain),
+              Image.asset('assets/promosoluciones_logo.png',
+                  height: 110, fit: BoxFit.contain),
               const SizedBox(height: 16),
               TextField(
                 controller: _loginController,

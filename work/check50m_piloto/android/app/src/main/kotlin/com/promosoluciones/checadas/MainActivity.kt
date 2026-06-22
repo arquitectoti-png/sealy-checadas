@@ -1,4 +1,4 @@
-package com.sealy.checadas
+package com.promosoluciones.checadas
 
 import io.flutter.embedding.android.FlutterActivity
 
