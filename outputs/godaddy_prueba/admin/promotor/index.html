@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5064a2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Promosoluciones">
+  <title>Promosoluciones Promotor</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="../assets/promosoluciones_logo.png">
+  <link rel="apple-touch-icon" href="../assets/promosoluciones_logo.png">
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --ink: #121827;
+      --muted: #647089;
+      --line: #dce2ef;
+      --primary: #5064a2;
+      --primary-strong: #234fba;
+      --danger: #c93535;
+      --ok: #0c8b45;
+      --warn: #9a6500;
+      --shadow: 0 10px 26px rgba(19, 30, 55, 0.08);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      padding-bottom: calc(82px + env(safe-area-inset-bottom));
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      min-height: 48px;
+      padding: 0 16px;
+      font-weight: 700;
+      color: var(--ink);
+      background: #edf1f8;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--primary);
+      color: #fff;
+      width: 100%;
+    }
+
+    button.danger {
+      background: #faeaea;
+      color: var(--danger);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      min-height: 48px;
+      padding: 10px 12px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    label {
+      display: block;
+      margin: 14px 0 6px;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.92rem;
+    }
+
+    .app {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+      background: rgba(246, 247, 251, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(220, 226, 239, 0.7);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-size: 1.35rem;
+      font-weight: 800;
+    }
+
+    .brand img {
+      width: 38px;
+      height: 38px;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+
+    .logout {
+      width: 46px;
+      min-width: 46px;
+      padding: 0;
+      font-size: 1.4rem;
+      background: transparent;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      margin: 14px 0;
+    }
+
+    .card h2, .card h3 {
+      margin: 0 0 12px;
+      line-height: 1.2;
+    }
+
+    .muted { color: var(--muted); }
+    .small { font-size: 0.9rem; }
+    .hide { display: none !important; }
+
+    .status {
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin: 10px 0;
+      background: #eef2fb;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .status.ok { background: #e8f7ef; color: var(--ok); }
+    .status.warn { background: #fff3d8; color: var(--warn); }
+    .status.error { background: #fdecec; color: var(--danger); }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .row > * { flex: 1 1 auto; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #edf1f8;
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.86rem;
+    }
+
+    .pill.ok { background: #e2f6eb; color: var(--ok); }
+    .pill.warn { background: #fff1ce; color: var(--warn); }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fff;
+    }
+
+    .item-title {
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+
+    .tabs {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+      background: rgba(246, 247, 251, 0.96);
+      border-top: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+
+    .tab {
+      min-height: 56px;
+      padding: 6px 4px;
+      border-radius: 14px;
+      background: transparent;
+      color: #444a5a;
+      font-size: 0.78rem;
+      line-height: 1.1;
+    }
+
+    .tab span {
+      display: block;
+      font-size: 1.45rem;
+      margin-bottom: 4px;
+    }
+
+    .tab.active {
+      background: #e9edff;
+      color: var(--primary-strong);
+    }
+
+    .photo-preview, .notice-image, .modal img {
+      max-width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #f0f2f7;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(10, 16, 30, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .modal {
+      width: min(720px, 100%);
+      max-height: 92vh;
+      overflow: auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .loader {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(246, 247, 251, 0.72);
+      display: grid;
+      place-items: center;
+      color: var(--primary-strong);
+      font-weight: 800;
+    }
+
+    .login-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .login-card {
+      width: min(440px, 100%);
+    }
+
+    .login-logo {
+      width: 170px;
+      max-width: 70%;
+      display: block;
+      margin: 0 auto 22px;
+    }
+
+    @media (min-width: 680px) {
+      .app { padding: 22px; }
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="loginView" class="login-shell">
+    <section class="card login-card">
+      <img class="login-logo" src="../assets/promosoluciones_logo.png" alt="Promosoluciones">
+      <h1>Ingreso promotor</h1>
+      <p class="muted">Usa tu usuario y contraseña asignados.</p>
+      <label for="loginInput">Usuario, correo o número de empleado</label>
+      <input id="loginInput" autocomplete="username">
+      <label for="passwordInput">Contraseña</label>
+      <input id="passwordInput" type="password" autocomplete="current-password">
+      <div id="loginMessage" class="status hide"></div>
+      <button id="loginButton" class="primary">Ingresar</button>
+    </section>
+  </main>
+
+  <section id="appView" class="hide">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../assets/promosoluciones_logo.png" alt="">
+        <span>Promosoluciones</span>
+      </div>
+      <button id="logoutButton" class="logout" title="Cerrar sesión">↪</button>
+    </header>
+
+    <div class="app">
+      <section id="tabCheck" class="panel"></section>
+      <section id="tabRecords" class="panel hide"></section>
+      <section id="tabSync" class="panel hide"></section>
+      <section id="tabPassword" class="panel hide"></section>
+      <section id="tabNotices" class="panel hide"></section>
+    </div>
+
+    <nav class="tabs" aria-label="Módulos">
+      <button class="tab active" data-tab="check"><span>▣</span>Checar</button>
+      <button class="tab" data-tab="records"><span>◷</span>Registros</button>
+      <button class="tab" data-tab="sync"><span>↻</span>Sync</button>
+      <button class="tab" data-tab="password"><span>▨</span>Clave</button>
+      <button class="tab" data-tab="notices"><span>◉</span>Avisos</button>
+    </nav>
+  </section>
+
+  <input id="photoInput" class="hide" type="file" accept="image/*" capture="user">
+  <div id="busyView" class="loader hide">Procesando...</div>
+  <div id="modalRoot"></div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const API_BASE = apiBasePath();
+      const RADIUS_FALLBACK = 50;
+      const REJECTED_TTL_MS = 48 * 60 * 60 * 1000;
+      const STORAGE = {
+        token: 'promotor_web_token',
+        user: 'promotor_web_user',
+        bootstrap: 'promotor_web_bootstrap',
+        queue: 'promotor_web_queue',
+        device: 'promotor_web_device',
+        serverClock: 'promotor_web_server_clock'
+      };
+
+      const state = {
+        token: localStorage.getItem(STORAGE.token) || '',
+        user: readJson(STORAGE.user, null),
+        bootstrap: readJson(STORAGE.bootstrap, null),
+        queue: readJson(STORAGE.queue, []),
+        records: [],
+        notices: [],
+        tab: 'check',
+        phase: 'ingreso',
+        messages: {
+          check: 'Listo para checar.',
+          records: 'Actualiza para cargar tu historial.',
+          sync: 'Sin sincronizaciones recientes.',
+          password: '',
+          notices: 'Actualiza para cargar avisos.'
+        },
+        nearest: null,
+        pendingPhotoFile: null
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const loginView = $('loginView');
+      const appView = $('appView');
+      const busyView = $('busyView');
+      const photoInput = $('photoInput');
+
+      $('loginButton').addEventListener('click', login);
+      $('passwordInput').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') login();
+      });
+      $('logoutButton').addEventListener('click', logout);
+      photoInput.addEventListener('change', () => {
+        const file = photoInput.files && photoInput.files[0];
+        photoInput.value = '';
+        if (file) {
+          makeCheck(file);
+        }
+      });
+      document.querySelectorAll('.tab').forEach((button) => {
+        button.addEventListener('click', () => setTab(button.dataset.tab));
+      });
+
+      window.addEventListener('online', () => {
+        state.messages.sync = 'Conexión disponible. Puedes sincronizar pendientes.';
+        render();
+      });
+      window.addEventListener('offline', () => {
+        state.messages.sync = 'Sin datos o sin internet. La cola se queda guardada.';
+        render();
+      });
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      }
+
+      boot();
+
+      async function boot() {
+        purgeRejected();
+        if (state.token) {
+          showApp();
+          render();
+          await refreshBootstrap(false);
+        } else {
+          showLogin();
+        }
+      }
+
+      async function login() {
+        const loginValue = $('loginInput').value.trim();
+        const password = $('passwordInput').value;
+        if (!loginValue || !password) {
+          showLoginMessage('Captura usuario y contraseña.', 'error');
+          return;
+        }
+        await withBusy(async () => {
+          const data = await request('/auth/login', {
+            method: 'POST',
+            body: { login: loginValue, password, client_type: 'mobile' },
+            auth: false
+          });
+          state.token = data.token || '';
+          state.user = data.user || null;
+          localStorage.setItem(STORAGE.token, state.token);
+          localStorage.setItem(STORAGE.user, JSON.stringify(state.user));
+          $('passwordInput').value = '';
+          showApp();
+          await refreshBootstrap(true);
+        }, (error) => showLoginMessage(error.message, 'error'));
+      }
+
+      async function logout() {
+        try {
+          if (state.token) {
+            await request('/auth/logout', { method: 'POST', body: {} });
+          }
+        } catch (_) {}
+        state.token = '';
+        state.user = null;
+        state.bootstrap = null;
+        state.records = [];
+        state.notices = [];
+        localStorage.removeItem(STORAGE.token);
+        localStorage.removeItem(STORAGE.user);
+        localStorage.removeItem(STORAGE.bootstrap);
+        localStorage.removeItem(STORAGE.serverClock);
+        showLogin();
+      }
+
+      async function refreshBootstrap(showErrors) {
+        if (!state.token || !navigator.onLine) {
+          if (!state.bootstrap && showErrors) {
+            state.messages.check = 'Conéctate a internet una vez para cargar tiendas activas.';
+          }
+          render();
+          return;
+        }
+        try {
+          const data = await request('/me/mobile-bootstrap');
+          state.bootstrap = data;
+          saveJson(STORAGE.bootstrap, data);
+          if (data.server_time) {
+            saveJson(STORAGE.serverClock, {
+              serverMs: Date.parse(data.server_time),
+              clientMs: Date.now()
+            });
+          }
+          syncSelectedPhase();
+          updateNearestSilently();
+          render();
+        } catch (error) {
+          if (showErrors) state.messages.check = error.message;
+          render();
+        }
+      }
+
+      function startPhotoCapture() {
+        const available = availablePhases().filter((item) => item.enabled);
+        if (available.length === 0) {
+          state.messages.check = 'Ya registraste las checadas requeridas de hoy.';
+          render();
+          return;
+        }
+        if (!available.some((item) => item.key === state.phase)) {
+          state.phase = available[0].key;
+        }
+        photoInput.click();
+      }
+
+      async function makeCheck(file) {
+        await withBusy(async () => {
+          const position = await getCurrentPosition();
+          if (position.coords.accuracy > 75) {
+            throw new Error(`GPS impreciso (${position.coords.accuracy.toFixed(1)} m). Intenta en un área abierta.`);
+          }
+          if (deviceClockLooksSuspicious()) {
+            throw new Error('Hora del dispositivo sospechosa. Activa fecha y hora automáticas.');
+          }
+          const nearest = nearestStore(position.coords.latitude, position.coords.longitude);
+          if (!nearest) {
+            throw new Error('No hay tiendas activas cargadas. Conéctate a internet para actualizar tiendas.');
+          }
+          state.nearest = nearest;
+          if (nearest.distanceMeters > nearest.store.allowed_radius_meters) {
+            state.messages.check = `Bloqueado: tienda más cercana ${storeLabel(nearest.store)} a ${nearest.distanceMeters.toFixed(1)} m. Radio permitido ${nearest.store.allowed_radius_meters || RADIUS_FALLBACK} m.`;
+            render();
+            return;
+          }
+
+          const photoBase64 = await compressImage(file);
+          const pending = {
+            local_id: String(Date.now()) + String(Math.floor(Math.random() * 10000)),
+            store_id: Number(nearest.store.id),
+            phase: state.phase,
+            captured_at_device: localIsoDateTime(),
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            gps_accuracy_meters: position.coords.accuracy,
+            gps_is_mocked: false,
+            distance_meters_client: nearest.distanceMeters,
+            device_id: deviceId(),
+            photo_base64: photoBase64,
+            created_at_client: new Date().toISOString(),
+            rejected_at: null,
+            rejected_message: ''
+          };
+
+          if (!navigator.onLine) {
+            addQueue(pending);
+            state.messages.check = 'Checada guardada offline. Pendiente de sincronizar.';
+            syncSelectedPhase();
+            render();
+            return;
+          }
+
+          try {
+            const data = await request('/checks', { method: 'POST', body: apiPayload(pending), allow422: true });
+            if (data.status === 'blocked_out_of_range') {
+              state.messages.check = `Bloqueado: ${Number(data.distance_meters || 0).toFixed(1)} m de la tienda. Radio ${data.allowed_radius_meters || RADIUS_FALLBACK} m.`;
+            } else {
+              state.messages.check = `Checada registrada. Distancia: ${Number(data.distance_meters || nearest.distanceMeters).toFixed(1)} m.`;
+              await refreshBootstrap(false);
+            }
+          } catch (error) {
+            if (!navigator.onLine || error.offline) {
+              addQueue(pending);
+              state.messages.check = 'Checada guardada offline. Pendiente de sincronizar.';
+            } else {
+              throw error;
+            }
+          }
+          syncSelectedPhase();
+          render();
+        }, (error) => {
+          state.messages.check = error.message;
+          render();
+        });
+      }
+
+      async function syncQueue() {
+        await withBusy(async () => {
+          purgeRejected();
+          const syncable = state.queue.filter((item) => !item.rejected_at);
+          if (syncable.length === 0) {
+            state.messages.sync = state.queue.length
+              ? 'No hay pendientes por reenviar. Los rechazados se conservarán 48 horas.'
+              : 'No hay pendientes por sincronizar.';
+            saveQueue();
+            render();
+            return;
+          }
+          if (!navigator.onLine) {
+            state.messages.sync = 'Sin datos o sin internet. La cola sigue pendiente.';
+            render();
+            return;
+          }
+          const data = await request('/checks/sync', {
+            method: 'POST',
+            body: {
+              device_id: deviceId(),
+              items: syncable.map(syncPayload)
+            }
+          });
+          const syncedIds = new Set((data.synced || []).map((item) => String(item.local_id || '')));
+          const rejected = data.rejected || [];
+          const rejectedById = {};
+          rejected.forEach((item) => {
+            if (item.local_id) rejectedById[String(item.local_id)] = item.message || 'Rechazada';
+          });
+          state.queue = state.queue
+            .filter((item) => !syncedIds.has(String(item.local_id)))
+            .map((item) => {
+              if (!rejectedById[String(item.local_id)]) return item;
+              return {
+                ...item,
+                rejected_at: new Date().toISOString(),
+                rejected_message: rejectedById[String(item.local_id)]
+              };
+            });
+          purgeRejected();
+          saveQueue();
+          state.messages.sync = `Sincronizados: ${syncedIds.size}. Rechazados: ${rejected.length}.`;
+          await refreshBootstrap(false);
+          render();
+        }, (error) => {
+          state.messages.sync = error.message;
+          render();
+        });
+      }
+
+      async function loadRecords() {
+        await withBusy(async () => {
+          if (!navigator.onLine) {
+            state.messages.records = 'Sin datos o sin internet. Conéctate para actualizar el historial.';
+            render();
+            return;
+          }
+          const now = new Date();
+          const start = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+          const end = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+          const data = await request(`/checks/my?start=${start}&end=${end}`);
+          state.records = data.items || [];
+          state.messages.records = 'Historial actualizado.';
+          render();
+        }, (error) => {
+          state.messages.records = error.message;
+          render();
+        });
+      }
+
+      async function loadNotices() {
+        await withBusy(async () => {
+          if (!navigator.onLine) {
+            state.messages.notices = 'Sin datos o sin internet. Conéctate para actualizar avisos.';
+            render();
+            return;
+          }
+          const data = await request('/me/notices');
+          state.notices = data.items || [];
+          state.messages.notices = state.notices.length ? 'Avisos actualizados.' : 'No hay avisos disponibles.';
+          render();
+          hydrateSecureImages();
+        }, (error) => {
+          state.messages.notices = error.message;
+          render();
+        });
+      }
+
+      async function changePassword() {
+        const current = $('currentPassword')?.value || '';
+        const next = $('newPassword')?.value || '';
+        if (!current || !next) {
+          state.messages.password = 'Captura contraseña actual y nueva contraseña.';
+          render();
+          return;
+        }
+        await withBusy(async () => {
+          await request('/me/change-password', {
+            method: 'POST',
+            body: { current_password: current, new_password: next }
+          });
+          $('currentPassword').value = '';
+          $('newPassword').value = '';
+          state.messages.password = 'Contraseña actualizada.';
+          render();
+        }, (error) => {
+          state.messages.password = error.message;
+          render();
+        });
+      }
+
+      async function openSecureImage(path) {
+        await withBusy(async () => {
+          const url = await secureImageUrl(path);
+          $('modalRoot').innerHTML = `
+            <div class="modal-backdrop">
+              <div class="modal">
+                <div class="row" style="justify-content:flex-end"><button id="closeModal">Cerrar</button></div>
+                <img src="${url}" alt="Foto de checada">
+              </div>
+            </div>`;
+          $('closeModal').addEventListener('click', closeModal);
+          $('modalRoot').querySelector('.modal-backdrop').addEventListener('click', (event) => {
+            if (event.target.classList.contains('modal-backdrop')) closeModal();
+          });
+        }, (error) => alert(error.message));
+      }
+
+      function closeModal() {
+        $('modalRoot').innerHTML = '';
+      }
+
+      async function request(path, options = {}) {
+        const method = options.method || 'GET';
+        const headers = { Accept: 'application/json' };
+        if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+        if (options.auth !== false && state.token) headers.Authorization = `Bearer ${state.token}`;
+        let response;
+        try {
+          response = await fetch(API_BASE + path, {
+            method,
+            headers,
+            body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+          });
+        } catch (error) {
+          const wrapped = new Error('Sin datos o sin internet. Intenta de nuevo cuando tengas conexión.');
+          wrapped.offline = true;
+          throw wrapped;
+        }
+        let data = {};
+        const text = await response.text();
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (_) {
+            throw new Error('El servidor devolvió una respuesta no válida.');
+          }
+        }
+        if (!response.ok && !(options.allow422 && response.status === 422)) {
+          throw new Error(data.error || data.message || `Error ${response.status}`);
+        }
+        return data;
+      }
+
+      async function secureImageUrl(path) {
+        if (!path) throw new Error('Imagen no disponible.');
+        const response = await fetch(API_BASE + path, {
+          headers: { Authorization: `Bearer ${state.token}` }
+        });
+        if (!response.ok) throw new Error('No se pudo cargar la imagen.');
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      }
+
+      async function hydrateSecureImages() {
+        const images = Array.from(document.querySelectorAll('[data-secure-src]'));
+        for (const image of images) {
+          try {
+            image.src = await secureImageUrl(image.dataset.secureSrc);
+          } catch (_) {
+            image.replaceWith(textNode('No se pudo cargar la imagen.', 'muted small'));
+          }
+        }
+      }
+
+      function render() {
+        if (!state.token) return;
+        renderCheck();
+        renderRecords();
+        renderSync();
+        renderPassword();
+        renderNotices();
+      }
+
+      function renderCheck() {
+        const panel = $('tabCheck');
+        const phases = availablePhases();
+        const enabled = phases.filter((item) => item.enabled);
+        const nearestText = nearestSummary();
+        panel.innerHTML = `
+          <div class="card">
+            <h2>${escapeHtml(state.user?.full_name || 'Promotor')}</h2>
+            <p>${escapeHtml(nearestText)}</p>
+            <button id="nearestButton">Actualizar ubicación</button>
+          </div>
+          <div class="card">
+            <h2>Nueva checada</h2>
+            ${phases.length ? `
+              <label for="phaseSelect">Fase</label>
+              <select id="phaseSelect">
+                ${phases.map((item) => `<option value="${item.key}" ${item.key === state.phase ? 'selected' : ''} ${item.enabled ? '' : 'disabled'}>${escapeHtml(item.enabled ? item.label : item.label + ' - pendiente anterior')}</option>`).join('')}
+              </select>
+              <div style="height:12px"></div>
+              <button id="checkButton" class="primary" ${enabled.length ? '' : 'disabled'}>Tomar selfie y checar</button>
+            ` : '<p>Ya registraste las checadas requeridas de hoy.</p>'}
+            ${statusHtml(state.messages.check)}
+          </div>
+          <div class="card">
+            <h2>Checadas de hoy</h2>
+            ${todayChecksHtml()}
+          </div>`;
+        $('phaseSelect')?.addEventListener('change', (event) => {
+          state.phase = event.target.value;
+        });
+        $('nearestButton')?.addEventListener('click', updateNearestManual);
+        $('checkButton')?.addEventListener('click', startPhotoCapture);
+      }
+
+      function renderRecords() {
+        $('tabRecords').innerHTML = `
+          <div class="card">
+            <button id="recordsButton" class="primary">Actualizar historial</button>
+            ${statusHtml(state.messages.records)}
+          </div>
+          <div class="list">
+            ${state.records.length ? state.records.map(recordHtml).join('') : '<div class="card"><h2>Historial</h2><p>Sin registros cargados.</p></div>'}
+          </div>`;
+        $('recordsButton')?.addEventListener('click', loadRecords);
+        document.querySelectorAll('[data-photo-url]').forEach((button) => {
+          button.addEventListener('click', () => openSecureImage(button.dataset.photoUrl));
+        });
+      }
+
+      function renderSync() {
+        const pending = state.queue.filter((item) => !item.rejected_at);
+        const rejected = state.queue.filter((item) => item.rejected_at);
+        $('tabSync').innerHTML = `
+          <div class="card">
+            <h2>Cola pendiente</h2>
+            <p>${pending.length} checada(s) pendientes.</p>
+            <p class="muted">Usa esta sección cuando necesites reenviar checadas pendientes.</p>
+            <button id="syncButton" class="primary">Sincronizar ahora</button>
+            ${statusHtml(state.messages.sync)}
+          </div>
+          <div class="list">
+            ${pending.map(queueItemHtml).join('')}
+            ${rejected.map(rejectedItemHtml).join('')}
+          </div>`;
+        $('syncButton')?.addEventListener('click', syncQueue);
+      }
+
+      function renderPassword() {
+        $('tabPassword').innerHTML = `
+          <div class="card">
+            <h2>Cambiar contraseña</h2>
+            <label for="currentPassword">Contraseña actual</label>
+            <input id="currentPassword" type="password" autocomplete="current-password">
+            <label for="newPassword">Nueva contraseña</label>
+            <input id="newPassword" type="password" autocomplete="new-password">
+            <div style="height:14px"></div>
+            <button id="passwordButton" class="primary">Actualizar contraseña</button>
+            ${state.messages.password ? statusHtml(state.messages.password) : ''}
+          </div>`;
+        $('passwordButton')?.addEventListener('click', changePassword);
+      }
+
+      function renderNotices() {
+        $('tabNotices').innerHTML = `
+          <div class="card">
+            <button id="noticesButton" class="primary">Actualizar avisos</button>
+            ${statusHtml(state.messages.notices)}
+          </div>
+          <div class="list">
+            ${state.notices.length ? state.notices.map(noticeHtml).join('') : '<div class="card"><h2>Avisos</h2><p>Sin avisos disponibles.</p></div>'}
+          </div>`;
+        $('noticesButton')?.addEventListener('click', loadNotices);
+        hydrateSecureImages();
+      }
+
+      function setTab(tab) {
+        state.tab = tab;
+        document.querySelectorAll('.panel').forEach((panel) => panel.classList.add('hide'));
+        $(`tab${capitalize(tab)}`).classList.remove('hide');
+        document.querySelectorAll('.tab').forEach((button) => {
+          button.classList.toggle('active', button.dataset.tab === tab);
+        });
+        if (tab === 'notices' && state.notices.length === 0) loadNotices();
+        if (tab === 'records' && state.records.length === 0) loadRecords();
+      }
+
+      function showLogin() {
+        loginView.classList.remove('hide');
+        appView.classList.add('hide');
+      }
+
+      function showApp() {
+        loginView.classList.add('hide');
+        appView.classList.remove('hide');
+        setTab(state.tab || 'check');
+      }
+
+      function showLoginMessage(message, kind) {
+        const node = $('loginMessage');
+        node.textContent = message;
+        node.className = `status ${kind || ''}`;
+        node.classList.remove('hide');
+      }
+
+      function phaseOptions() {
+        const base = [
+          { key: 'ingreso', label: 'Ingreso' },
+          { key: 'salida_comer', label: 'Salida a comer', requiredPrevious: 'ingreso' },
+          { key: 'entrada_comer', label: 'Entrada de comer', requiredPrevious: 'salida_comer' },
+          { key: 'salida', label: 'Salida', requiredPrevious: 'entrada_comer' }
+        ];
+        if (state.bootstrap?.requires_location_verification) {
+          base.push(
+            { key: 'verificacion_ubicacion_1', label: 'Verificación de ubicación 1', verification: true },
+            { key: 'verificacion_ubicacion_2', label: 'Verificación de ubicación 2', verification: true },
+            { key: 'verificacion_ubicacion_3', label: 'Verificación de ubicación 3', verification: true }
+          );
+        }
+        return base;
+      }
+
+      function checkedPhasesToday() {
+        const checked = new Set(todayChecks().map((item) => item.phase));
+        state.queue
+          .filter((item) => !item.rejected_at && isToday(item.captured_at_device))
+          .forEach((item) => checked.add(item.phase));
+        return checked;
+      }
+
+      function availablePhases() {
+        const checked = checkedPhasesToday();
+        return phaseOptions()
+          .filter((item) => !checked.has(item.key))
+          .map((item) => ({
+            ...item,
+            enabled: !item.requiredPrevious || checked.has(item.requiredPrevious)
+          }));
+      }
+
+      function syncSelectedPhase() {
+        const selectable = availablePhases().filter((item) => item.enabled);
+        if (selectable.length && !selectable.some((item) => item.key === state.phase)) {
+          state.phase = selectable[0].key;
+        }
+      }
+
+      function todayChecks() {
+        const today = localDateOnly();
+        return (state.bootstrap?.today_checks || []).filter((item) => {
+          return item.check_date ? item.check_date === today : isToday(item.checked_at);
+        });
+      }
+
+      function todayChecksHtml() {
+        const checks = todayChecks();
+        if (!checks.length) return '<p>Sin checadas registradas hoy.</p>';
+        return checks.map((item) => `
+          <div class="item">
+            <div class="item-title">${escapeHtml(phaseLabel(item.phase))}</div>
+            <div class="muted">${escapeHtml(item.checked_at || '')} - ${escapeHtml(statusLabel(item.status))}</div>
+          </div>`).join('');
+      }
+
+      function recordHtml(record) {
+        const label = [record.store_chain, record.store_name].filter(Boolean).join(' - ');
+        return `
+          <div class="item">
+            <div class="item-title">${escapeHtml(record.check_date || '')} - ${escapeHtml(phaseLabel(record.phase))}</div>
+            <div>${escapeHtml(label)}</div>
+            <div class="muted">${Number(record.distance_meters || 0).toFixed(1)} m - ${escapeHtml(statusLabel(record.status))}</div>
+            <div class="muted">Laborado: ${escapeHtml(record.worked_time || '')} / Comida: ${escapeHtml(record.meal_time || '')}</div>
+            ${record.photo_url ? `<button data-photo-url="${escapeAttr(record.photo_url)}">Ver foto</button>` : ''}
+          </div>`;
+      }
+
+      function queueItemHtml(item) {
+        return `
+          <div class="item">
+            <div class="item-title">${escapeHtml(phaseLabel(item.phase))}</div>
+            <div class="muted">${escapeHtml(item.captured_at_device)}</div>
+            <div>Distancia cliente: ${Number(item.distance_meters_client || 0).toFixed(1)} m</div>
+          </div>`;
+      }
+
+      function rejectedItemHtml(item) {
+        return `
+          <div class="item">
+            <div class="item-title">${escapeHtml(phaseLabel(item.phase))} - Rechazada</div>
+            <div class="muted">${escapeHtml(item.captured_at_device)}</div>
+            <div>Distancia cliente: ${Number(item.distance_meters_client || 0).toFixed(1)} m</div>
+            <div class="status error">${escapeHtml(item.rejected_message || 'Rechazada')}</div>
+            <div class="small muted">Se ocultará automáticamente después de 48 horas.</div>
+          </div>`;
+      }
+
+      function noticeHtml(notice) {
+        return `
+          <div class="item">
+            <div class="item-title">${escapeHtml(notice.title || '')}</div>
+            ${notice.body ? `<p>${escapeHtml(notice.body)}</p>` : ''}
+            ${notice.image_url ? `<img class="notice-image" data-secure-src="${escapeAttr(notice.image_url)}" alt="Imagen del aviso">` : ''}
+            <div class="small muted">${escapeHtml(notice.published_at || '')}</div>
+          </div>`;
+      }
+
+      function nearestSummary() {
+        if (state.nearest) {
+          const inside = state.nearest.distanceMeters <= (Number(state.nearest.store.allowed_radius_meters) || RADIUS_FALLBACK);
+          return `${storeLabel(state.nearest.store)} es la más cercana: ${state.nearest.distanceMeters.toFixed(1)} m. ${inside ? 'Dentro del radio.' : 'Fuera del radio.'}`;
+        }
+        if (!state.bootstrap?.active_stores?.length) {
+          return 'Conéctate a internet para cargar tiendas activas.';
+        }
+        return 'Pulsa actualizar ubicación para mostrar la tienda más cercana.';
+      }
+
+      async function updateNearestSilently() {
+        if (!navigator.geolocation || !state.bootstrap?.active_stores?.length) return;
+        navigator.geolocation.getCurrentPosition((position) => {
+          state.nearest = nearestStore(position.coords.latitude, position.coords.longitude);
+          renderCheck();
+        }, () => {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+      }
+
+      async function updateNearestManual() {
+        await withBusy(async () => {
+          const position = await getCurrentPosition();
+          state.nearest = nearestStore(position.coords.latitude, position.coords.longitude);
+          state.messages.check = state.nearest
+            ? 'Ubicación actualizada.'
+            : 'No hay tiendas activas cargadas.';
+          render();
+        }, (error) => {
+          state.messages.check = error.message;
+          render();
+        });
+      }
+
+      function nearestStore(lat, lng) {
+        const stores = state.bootstrap?.active_stores || [];
+        let nearest = null;
+        stores.forEach((store) => {
+          const distanceMeters = haversine(lat, lng, Number(store.latitude), Number(store.longitude));
+          if (!nearest || distanceMeters < nearest.distanceMeters) {
+            nearest = { store, distanceMeters };
+          }
+        });
+        return nearest;
+      }
+
+      function getCurrentPosition() {
+        if (!navigator.geolocation) {
+          return Promise.reject(new Error('Este navegador no permite geolocalización.'));
+        }
+        return new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, () => {
+            reject(new Error('No se pudo obtener tu ubicación. Activa GPS y permisos del navegador.'));
+          }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+        });
+      }
+
+      async function compressImage(file) {
+        const dataUrl = await fileToDataUrl(file);
+        const img = await loadImage(dataUrl);
+        const maxSide = 720;
+        let { width, height } = img;
+        const scale = Math.min(1, maxSide / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        return canvas.toDataURL('image/jpeg', 0.68);
+      }
+
+      function fileToDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('No se pudo leer la foto.'));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('No se pudo procesar la foto.'));
+          img.src = src;
+        });
+      }
+
+      function apiPayload(item) {
+        return {
+          store_id: item.store_id,
+          phase: item.phase,
+          captured_at_device: item.captured_at_device,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          gps_accuracy_meters: item.gps_accuracy_meters,
+          gps_is_mocked: item.gps_is_mocked,
+          distance_meters_client: item.distance_meters_client,
+          device_id: item.device_id,
+          photo_base64: item.photo_base64
+        };
+      }
+
+      function syncPayload(item) {
+        return { local_id: item.local_id, ...apiPayload(item) };
+      }
+
+      function addQueue(item) {
+        state.queue.push(item);
+        saveQueue();
+      }
+
+      function saveQueue() {
+        purgeRejected();
+        saveJson(STORAGE.queue, state.queue);
+      }
+
+      function purgeRejected() {
+        const cutoff = Date.now() - REJECTED_TTL_MS;
+        state.queue = (state.queue || []).filter((item) => {
+          return !item.rejected_at || Date.parse(item.rejected_at) > cutoff;
+        });
+        saveJson(STORAGE.queue, state.queue);
+      }
+
+      function deviceId() {
+        let id = localStorage.getItem(STORAGE.device);
+        if (!id) {
+          id = String(Date.now()) + String(Math.floor(Math.random() * 100000));
+          localStorage.setItem(STORAGE.device, id);
+        }
+        return id;
+      }
+
+      function deviceClockLooksSuspicious() {
+        const clock = readJson(STORAGE.serverClock, null);
+        if (!clock?.serverMs || !clock?.clientMs) return false;
+        const expectedServerNow = Number(clock.serverMs) + (Date.now() - Number(clock.clientMs));
+        return Math.abs(Date.now() - expectedServerNow) > 15 * 60 * 1000;
+      }
+
+      function haversine(lat1, lng1, lat2, lng2) {
+        const earth = 6371000;
+        const toRad = (value) => value * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLng = toRad(lng2 - lng1);
+        const a = Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLng / 2) ** 2;
+        return earth * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+
+      function statusHtml(message) {
+        if (!message) return '';
+        const kind = /bloqueado|error|incorrect|sospechosa|impreciso|sin datos|sin internet/i.test(message)
+          ? 'error'
+          : /pendiente|offline|rechazad/i.test(message)
+            ? 'warn'
+            : /registrada|actualizad|listo|sin sincronizaciones/i.test(message)
+              ? 'ok'
+              : '';
+        return `<div class="status ${kind}">${escapeHtml(message)}</div>`;
+      }
+
+      function storeLabel(store) {
+        return [store.chain, store.name].filter(Boolean).join(' - ') || 'Tienda';
+      }
+
+      function phaseLabel(phase) {
+        return {
+          ingreso: 'Ingreso',
+          salida_comer: 'Salida a comer',
+          entrada_comer: 'Entrada de comer',
+          salida: 'Salida',
+          verificacion_ubicacion_1: 'Verificación de ubicación 1',
+          verificacion_ubicacion_2: 'Verificación de ubicación 2',
+          verificacion_ubicacion_3: 'Verificación de ubicación 3'
+        }[phase] || phase;
+      }
+
+      function statusLabel(status) {
+        return {
+          valid: 'Válida',
+          synced: 'Sincronizada',
+          manual_review: 'Revisión manual',
+          blocked_out_of_range: 'Fuera de rango'
+        }[status] || status || '';
+      }
+
+      function localDateOnly(date = new Date()) {
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+      }
+
+      function localIsoDateTime() {
+        const now = new Date();
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      }
+
+      function isToday(value) {
+        const parsed = new Date(value);
+        return !Number.isNaN(parsed.getTime()) && localDateOnly(parsed) === localDateOnly();
+      }
+
+      function pad(value) {
+        return String(value).padStart(2, '0');
+      }
+
+      function capitalize(value) {
+        return value.charAt(0).toUpperCase() + value.slice(1);
+      }
+
+      function textNode(text, className) {
+        const node = document.createElement('p');
+        node.textContent = text;
+        node.className = className || '';
+        return node;
+      }
+
+      function readJson(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : fallback;
+        } catch (_) {
+          return fallback;
+        }
+      }
+
+      function saveJson(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+        } catch (_) {}
+      }
+
+      async function withBusy(action, onError) {
+        busyView.classList.remove('hide');
+        try {
+          await action();
+        } catch (error) {
+          if (onError) onError(error);
+          else throw error;
+        } finally {
+          busyView.classList.add('hide');
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[char]));
+      }
+
+      function escapeAttr(value) {
+        return escapeHtml(value).replace(/`/g, '&#96;');
+      }
+
+      function apiBasePath() {
+        const path = window.location.pathname;
+        if (path.includes('/admin/')) {
+          return path.split('/admin/')[0].replace(/\/$/, '') + '/api';
+        }
+        return new URL('../../api', window.location.href).pathname.replace(/\/$/, '');
+      }
+    })();
+  </script>
+</body>
+</html>

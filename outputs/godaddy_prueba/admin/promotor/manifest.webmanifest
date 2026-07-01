@@ -1,0 +1,24 @@
+{
+  "name": "Promosoluciones Promotor",
+  "short_name": "Promosoluciones",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#5064a2",
+  "description": "Web app provisional para checadas de promotores con foto y GPS.",
+  "icons": [
+    {
+      "src": "../assets/promosoluciones_logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "../assets/promosoluciones_logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
