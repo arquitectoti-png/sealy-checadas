@@ -12,10 +12,17 @@ outputs/*.apk
 outputs/*.aab
 outputs/*.ipa
 outputs/*.zip
+outputs/**/*.apk
+outputs/**/*.aab
+outputs/**/*.ipa
+outputs/**/*.zip
 outputs/flutter_piloto_check50m/
 outputs/prototipo_*.html
 outputs/schema_mysql_inicial.sql
 outputs/staraz_site_bd_completa.sql
+outputs/SUBIR_A_PLAY_CONSOLE_SOLO_ESTE/
+outputs/play_store_promosoluciones_*/
+outputs/play_store_real_android_*/
 
 # Runtime uploads
 outputs/godaddy_prueba/api/uploads/checks/
