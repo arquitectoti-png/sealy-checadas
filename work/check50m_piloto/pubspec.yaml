@@ -1,7 +1,7 @@
 name: promosoluciones
 description: App movil Promosoluciones para checadas con foto y GPS.
 publish_to: "none"
-version: 0.1.4+5
+version: 0.1.4+10
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

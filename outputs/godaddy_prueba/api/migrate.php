@@ -29,6 +29,12 @@ if (!$configPath) {
 
 $config = require $configPath;
 
+if (empty($config['allow_web_migrations'])) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Migraciones web deshabilitadas en produccion']);
+    exit;
+}
+
 if (($_GET['key'] ?? '') !== ($config['setup_key'] ?? '')) {
     http_response_code(403);
     echo json_encode(['error' => 'Invalid setup key']);
@@ -42,6 +48,7 @@ $dsn = sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $config['db_host'], $c
 $pdo = new PDO($dsn, $config['db_user'], $config['db_pass'], [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES => false,
 ]);
 $pdo->exec("SET time_zone = '-06:00'");
 

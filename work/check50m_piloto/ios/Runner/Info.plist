@@ -6,6 +6,8 @@
 	<string>La camara se usa para tomar evidencia de la checada.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>La ubicacion se usa para validar que estas dentro del radio permitido de la tienda.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>La ubicacion se usa para validar tu presencia en la tienda autorizada al registrar checadas. La app no rastrea tu ubicacion fuera del flujo de asistencia.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -30,6 +32,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

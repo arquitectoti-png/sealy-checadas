@@ -51,6 +51,7 @@ function db(array $config): PDO
     $pdo = new PDO($dsn, $config['db_user'], $config['db_pass'], [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
     ]);
     $pdo->exec("SET time_zone = '-06:00'");
     return $pdo;
@@ -119,6 +120,17 @@ function ensure_runtime_schema(PDO $pdo): void
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           INDEX idx_notices_status_date (status, published_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS app_review_sessions (
+          id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          token_hash CHAR(64) NOT NULL UNIQUE,
+          checks_json LONGTEXT NOT NULL,
+          expires_at DATETIME NOT NULL,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_app_review_expires (expires_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
     );
 }
@@ -285,6 +297,56 @@ function current_token_hash(): ?string
     return $token ? hash('sha256', $token) : null;
 }
 
+function is_app_review_user(array $user): bool
+{
+    return !empty($user['is_app_review']);
+}
+
+function app_review_is_available(array $config): bool
+{
+    if (empty($config['app_review_enabled'])) {
+        return false;
+    }
+
+    $expiresAt = trim((string)($config['app_review_expires_at'] ?? ''));
+    if ($expiresAt === '') {
+        return true;
+    }
+
+    $expiresTimestamp = strtotime($expiresAt);
+    return $expiresTimestamp !== false && $expiresTimestamp > time();
+}
+
+function app_review_credentials_match(array $config, string $login, string $password): bool
+{
+    if (!app_review_is_available($config)) {
+        return false;
+    }
+
+    $configuredLogin = (string)($config['app_review_login'] ?? '');
+    $configuredPasswordHash = (string)($config['app_review_password_hash'] ?? '');
+    if ($configuredLogin === '' || $configuredPasswordHash === '') {
+        return false;
+    }
+
+    return hash_equals($configuredLogin, $login)
+        && password_verify($password, $configuredPasswordHash);
+}
+
+function create_app_review_session(PDO $pdo, array $config): string
+{
+    $pdo->exec("DELETE FROM app_review_sessions WHERE expires_at <= NOW()");
+    $token = bin2hex(random_bytes(32));
+    $ttlHours = max(1, min(72, (int)($config['app_review_session_ttl_hours'] ?? 24)));
+    $expiresAt = date('Y-m-d H:i:s', time() + ($ttlHours * 3600));
+    $stmt = $pdo->prepare(
+        "INSERT INTO app_review_sessions (token_hash, checks_json, expires_at)
+         VALUES (?, '[]', ?)"
+    );
+    $stmt->execute([hash('sha256', $token), $expiresAt]);
+    return $token;
+}
+
 function auth_user(PDO $pdo): array
 {
     $token = bearer_token();
@@ -301,10 +363,33 @@ function auth_user(PDO $pdo): array
     );
     $stmt->execute([hash('sha256', $token)]);
     $user = $stmt->fetch();
-    if (!$user) {
-        response_json(['error' => 'Sesion invalida o expirada'], 401);
+    if ($user) {
+        $user['is_app_review'] = false;
+        return $user;
     }
-    return $user;
+
+    $tokenHash = hash('sha256', $token);
+    $stmt = $pdo->prepare(
+        "SELECT token_hash
+         FROM app_review_sessions
+         WHERE token_hash = ? AND expires_at > NOW()
+         LIMIT 1"
+    );
+    $stmt->execute([$tokenHash]);
+    if ($stmt->fetch()) {
+        return [
+            'id' => -1,
+            'full_name' => 'Apple App Review',
+            'role' => 'staff',
+            'status' => 'active',
+            'requires_location_verification' => 1,
+            'is_app_review' => true,
+            'review_token_hash' => $tokenHash,
+            'password_hash' => '',
+        ];
+    }
+
+    response_json(['error' => 'Sesion invalida o expirada'], 401);
 }
 
 function verify_user_password(string $password, string $storedHash): bool
@@ -1051,9 +1136,169 @@ function build_daily_check_rows(array $rows): array
     return array_values($daily);
 }
 
+function validate_app_review_photo(?string $photoBase64): void
+{
+    if (!$photoBase64) {
+        response_json(['error' => 'La foto es obligatoria'], 400);
+    }
+    if (strpos($photoBase64, ',') !== false) {
+        [, $photoBase64] = explode(',', $photoBase64, 2);
+    }
+    $bytes = base64_decode($photoBase64, true);
+    if ($bytes === false || strlen($bytes) < 100) {
+        response_json(['error' => 'Foto invalida'], 400);
+    }
+    if (strlen($bytes) > 2 * 1024 * 1024) {
+        response_json(['error' => 'La foto es demasiado grande'], 413);
+    }
+    if (function_exists('imagecreatefromstring')) {
+        $image = @imagecreatefromstring($bytes);
+        if ($image === false) {
+            response_json(['error' => 'Foto invalida'], 400);
+        }
+        if (PHP_VERSION_ID < 80500) {
+            imagedestroy($image);
+        }
+    }
+}
+
+function app_review_session_checks(PDO $pdo, array $user, bool $forUpdate = false): array
+{
+    $sql = "SELECT checks_json FROM app_review_sessions WHERE token_hash = ? AND expires_at > NOW() LIMIT 1";
+    if ($forUpdate) {
+        $sql .= ' FOR UPDATE';
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([(string)$user['review_token_hash']]);
+    $session = $stmt->fetch();
+    if (!$session) {
+        response_json(['error' => 'Sesion de revision expirada'], 401);
+    }
+
+    $checks = json_decode((string)$session['checks_json'], true);
+    return is_array($checks) ? $checks : [];
+}
+
+function app_review_check_datetime(array $data): array
+{
+    $captured = trim((string)($data['captured_at_device'] ?? ''));
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/', $captured, $match)) {
+        return [$match[1], $match[1] . ' ' . $match[2]];
+    }
+    return [date('Y-m-d'), date('Y-m-d H:i:s')];
+}
+
+function insert_app_review_check(PDO $pdo, array $user, array $data, string $source): array
+{
+    $phase = normalize_phase((string)($data['phase'] ?? ''));
+    if (!array_key_exists('latitude', $data) || !array_key_exists('longitude', $data)
+        || !is_numeric($data['latitude']) || !is_numeric($data['longitude'])) {
+        response_json(['error' => 'Latitud y longitud son obligatorias'], 400);
+    }
+    $latitude = (float)$data['latitude'];
+    $longitude = (float)$data['longitude'];
+    if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+        response_json(['error' => 'Ubicacion invalida'], 400);
+    }
+    if (!empty($data['gps_is_mocked'])) {
+        return [
+            'status' => 'rejected',
+            'message' => 'Ubicacion simulada detectada. Desactiva aplicaciones de ubicacion falsa.',
+        ];
+    }
+    $gpsAccuracy = isset($data['gps_accuracy_meters']) ? (float)$data['gps_accuracy_meters'] : null;
+    if ($gpsAccuracy !== null && $gpsAccuracy > 75) {
+        return [
+            'status' => 'rejected',
+            'message' => 'GPS con baja precision. Sal a un area abierta e intenta de nuevo.',
+            'gps_accuracy_meters' => round($gpsAccuracy, 2),
+        ];
+    }
+    validate_app_review_photo($data['photo_base64'] ?? null);
+
+    [$checkDate, $checkedAt] = app_review_check_datetime($data);
+    $pdo->beginTransaction();
+    try {
+        $checks = app_review_session_checks($pdo, $user, true);
+        $todayPhases = [];
+        foreach ($checks as $check) {
+            if (($check['check_date'] ?? '') === $checkDate) {
+                $todayPhases[] = (string)($check['phase'] ?? '');
+            }
+        }
+        if (in_array($phase, $todayPhases, true)) {
+            throw new RuntimeException('Ya existe una checada para esta fase del dia');
+        }
+
+        $order = phase_order();
+        $phaseIndex = array_search($phase, $order, true);
+        if ($phaseIndex !== false) {
+            for ($i = 0; $i < $phaseIndex; $i++) {
+                if (!in_array($order[$i], $todayPhases, true)) {
+                    throw new RuntimeException(
+                        'No puedes registrar ' . phase_label($phase)
+                        . ' sin registrar primero ' . phase_label($order[$i])
+                    );
+                }
+            }
+        }
+
+        $status = $source === 'offline_sync' ? 'synced' : 'valid';
+        $checkId = count($checks) + 1;
+        $checks[] = [
+            'id' => $checkId,
+            'user_id' => -1,
+            'store_id' => -1,
+            'phase' => $phase,
+            'check_date' => $checkDate,
+            'checked_at' => $checkedAt,
+            'captured_at_device' => $checkedAt,
+            'distance_meters' => 0,
+            'within_range' => 1,
+            'source' => $source,
+            'status' => $status,
+            'store_name' => 'Ubicacion virtual de revision',
+            'store_chain' => 'Promosoluciones',
+            'photo_path' => null,
+        ];
+        if (count($checks) > 50) {
+            $checks = array_slice($checks, -50);
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE app_review_sessions SET checks_json = ? WHERE token_hash = ?"
+        );
+        $stmt->execute([
+            json_encode($checks, JSON_UNESCAPED_SLASHES),
+            (string)$user['review_token_hash'],
+        ]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if ($source === 'offline_sync') {
+            throw $e;
+        }
+        response_json(['error' => $e->getMessage()], 409);
+    }
+
+    return [
+        'status' => $status,
+        'check_id' => $checkId,
+        'distance_meters' => 0,
+        'allowed_radius_meters' => 50,
+        'message' => 'Checada de demostracion registrada',
+    ];
+}
+
 function insert_check(PDO $pdo, array $config, array $user, array $data, string $source): array
 {
     require_role($user, ['staff']);
+
+    if (is_app_review_user($user)) {
+        return insert_app_review_check($pdo, $user, $data, $source);
+    }
 
     $storeId = (int)($data['store_id'] ?? 0);
     $phase = normalize_phase((string)($data['phase'] ?? ''));
@@ -1200,6 +1445,19 @@ try {
         $password = (string)($data['password'] ?? '');
         $clientType = (string)($data['client_type'] ?? 'mobile');
 
+        if ($clientType === 'mobile' && app_review_credentials_match($config, $login, $password)) {
+            $token = create_app_review_session($pdo, $config);
+            response_json([
+                'token' => $token,
+                'user' => [
+                    'id' => -1,
+                    'full_name' => 'Apple App Review',
+                    'role' => 'staff',
+                    'is_app_review' => true,
+                ],
+            ]);
+        }
+
         $stmt = $pdo->prepare(
             "SELECT * FROM users
              WHERE status = 'active'
@@ -1233,7 +1491,8 @@ try {
             'user' => [
                 'id' => (int)$user['id'],
                 'full_name' => $user['full_name'],
-                'role' => $user['role']
+                'role' => $user['role'],
+                'is_app_review' => false,
             ]
         ]);
     }
@@ -1241,6 +1500,13 @@ try {
     if ($method === 'POST' && $path === '/auth/logout') {
         $user = auth_user($pdo);
         $hash = current_token_hash();
+        if (is_app_review_user($user)) {
+            if ($hash) {
+                $stmt = $pdo->prepare("DELETE FROM app_review_sessions WHERE token_hash = ?");
+                $stmt->execute([$hash]);
+            }
+            response_json(['ok' => true]);
+        }
         if ($hash) {
             $stmt = $pdo->prepare("DELETE FROM auth_tokens WHERE user_id = ? AND token_hash = ?");
             $stmt->execute([(int)$user['id'], $hash]);
@@ -1252,6 +1518,12 @@ try {
         $user = auth_user($pdo);
         require_role($user, ['staff', 'admin', 'supervisor']);
         $data = body_json();
+        if (is_app_review_user($user)) {
+            response_json([
+                'ok' => true,
+                'message' => 'Las credenciales de revision permanecen sin cambios',
+            ]);
+        }
         $current = (string)($data['current_password'] ?? '');
         $new = (string)($data['new_password'] ?? '');
         if (!verify_user_password($current, $user['password_hash'])) {
@@ -1313,6 +1585,36 @@ try {
         require_role($user, ['staff']);
         $today = request_date_param('date', admin_today());
 
+        if (is_app_review_user($user)) {
+            $checks = array_values(array_filter(
+                app_review_session_checks($pdo, $user),
+                static fn(array $check): bool => ($check['check_date'] ?? '') === $today
+            ));
+            response_json([
+                'server_time' => date('c'),
+                'today_date' => $today,
+                'demo_mode' => true,
+                'user' => [
+                    'id' => -1,
+                    'full_name' => 'Apple App Review',
+                    'role' => 'staff',
+                    'is_app_review' => true,
+                ],
+                'requires_location_verification' => true,
+                'active_stores' => [[
+                    'id' => -1,
+                    'chain' => 'Promosoluciones',
+                    'name' => 'Ubicacion virtual de revision',
+                    'address' => 'Se centra temporalmente en la ubicacion del dispositivo revisor',
+                    'latitude' => 0,
+                    'longitude' => 0,
+                    'allowed_radius_meters' => 50,
+                    'timezone' => 'America/Mexico_City',
+                ]],
+                'today_checks' => $checks,
+            ]);
+        }
+
         $stmt = $pdo->prepare(
             "SELECT s.id, s.chain, s.name, s.address, s.latitude, s.longitude, s.allowed_radius_meters, s.timezone
              FROM stores s
@@ -1333,10 +1635,12 @@ try {
         response_json([
             'server_time' => date('c'),
             'today_date' => $today,
+            'demo_mode' => false,
             'user' => [
                 'id' => (int)$user['id'],
                 'full_name' => $user['full_name'],
-                'role' => $user['role']
+                'role' => $user['role'],
+                'is_app_review' => false,
             ],
             'requires_location_verification' => (int)($user['requires_location_verification'] ?? 0) === 1,
             'active_stores' => $stores,
@@ -1347,6 +1651,15 @@ try {
     if ($method === 'GET' && $path === '/me/notices') {
         $user = auth_user($pdo);
         require_role($user, ['staff']);
+        if (is_app_review_user($user)) {
+            response_json(['items' => [[
+                'id' => -1,
+                'title' => 'Aviso de demostracion',
+                'body' => 'Este contenido es exclusivo para la revision de App Store y no contiene informacion operativa.',
+                'image_url' => '',
+                'published_at' => date('Y-m-d H:i:s'),
+            ]]]);
+        }
         $stmt = $pdo->query(
             "SELECT id, title, body, image_path, published_at
              FROM notices
@@ -1410,6 +1723,24 @@ try {
         require_role($user, ['staff']);
         $start = $_GET['start'] ?? date('Y-m-01');
         $end = $_GET['end'] ?? date('Y-m-d');
+
+        if (is_app_review_user($user)) {
+            $items = array_values(array_filter(
+                app_review_session_checks($pdo, $user),
+                static fn(array $check): bool => ($check['check_date'] ?? '') >= $start
+                    && ($check['check_date'] ?? '') <= $end
+            ));
+            usort($items, static fn(array $a, array $b): int => strcmp(
+                (string)($b['checked_at'] ?? ''),
+                (string)($a['checked_at'] ?? '')
+            ));
+            $items = attach_work_times($items);
+            foreach ($items as &$item) {
+                $item['photo_url'] = '';
+                unset($item['photo_path']);
+            }
+            response_json(['items' => $items]);
+        }
 
         $stmt = $pdo->prepare(
             "SELECT c.*, s.name AS store_name, s.chain AS store_chain

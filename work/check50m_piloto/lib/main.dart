@@ -85,7 +85,13 @@ class _AppShellState extends State<AppShell> {
     final apiBase = prefs.getString('apiBaseUrl');
     final userJson = prefs.getString('user');
     final bootstrapJson = prefs.getString('bootstrap');
-    final queueJson = prefs.getString('queue');
+    final restoredUser = userJson == null
+        ? null
+        : AppUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
+    final queueKey =
+        restoredUser == null ? 'queue' : _queueStorageKeyFor(restoredUser);
+    final queueJson = prefs.getString(queueKey) ??
+        (restoredUser?.isAppReview == false ? prefs.getString('queue') : null);
 
     setState(() {
       _prefs = prefs;
@@ -93,9 +99,7 @@ class _AppShellState extends State<AppShell> {
       if (apiBase != null && apiBase.isNotEmpty) {
         _apiController.text = apiBase;
       }
-      if (userJson != null) {
-        _user = AppUser.fromJson(jsonDecode(userJson) as Map<String, dynamic>);
-      }
+      _user = restoredUser;
       if (bootstrapJson != null) {
         _bootstrap = MobileBootstrap.fromJson(
             jsonDecode(bootstrapJson) as Map<String, dynamic>);
@@ -108,12 +112,16 @@ class _AppShellState extends State<AppShell> {
         _purgeExpiredRejectedChecks();
       }
     });
+    if (restoredUser != null && queueJson != null) {
+      await prefs.setString(queueKey, queueJson);
+    }
   }
 
   String get _apiBaseUrl =>
       _apiController.text.trim().replaceAll(RegExp(r'/+$'), '');
 
   bool get _isLoggedIn => _token != null && _user != null;
+  bool get _isAppReview => _user?.isAppReview == true;
   List<PendingCheck> get _pendingQueue =>
       _queue.where((item) => item.rejectedAt == null).toList();
   List<PendingCheck> get _rejectedQueue =>
@@ -203,21 +211,37 @@ class _AppShellState extends State<AppShell> {
 
       _token = data['token'] as String;
       _user = AppUser.fromJson(data['user'] as Map<String, dynamic>);
+      if (_isAppReview) {
+        _queue = [];
+        await _prefs?.remove(_queueStorageKeyFor(_user!));
+      } else {
+        await _loadQueueForUser(_user!);
+      }
       await _prefs?.setString('apiBaseUrl', _apiBaseUrl);
       await _prefs?.setString('token', _token!);
       await _prefs?.setString('user', jsonEncode(_user!.toJson()));
       await _loadBootstrap();
-      _checkMessage = 'Sesion iniciada.';
+      _checkMessage = _isAppReview
+          ? 'Modo de revision iniciado con datos aislados.'
+          : 'Sesion iniciada.';
     });
   }
 
   Future<void> _logout() async {
+    if (_token != null && await _isOnline()) {
+      try {
+        await _request('/auth/logout', method: 'POST');
+      } catch (_) {
+        // Local logout must remain available if the server session already expired.
+      }
+    }
     await _prefs?.remove('token');
     await _prefs?.remove('user');
     setState(() {
       _token = null;
       _user = null;
       _bootstrap = null;
+      _queue = [];
       _records = [];
       _checkMessage = 'Sesion cerrada.';
       _recordsMessage = 'Sin registros cargados.';
@@ -229,6 +253,13 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _changePassword() async {
     await _runBusy(() async {
+      if (_isAppReview) {
+        _currentPasswordController.clear();
+        _newPasswordController.clear();
+        _passwordMessage =
+            'Las credenciales de revision permanecen sin cambios.';
+        return;
+      }
       if (_newPasswordController.text.length < 8) {
         throw ApiException(
             'La nueva contraseña debe tener al menos 8 caracteres.', 400);
@@ -456,8 +487,25 @@ class _AppShellState extends State<AppShell> {
   Future<void> _saveQueue() async {
     _purgeExpiredRejectedChecks();
     await _prefs?.setString(
-        'queue', jsonEncode(_queue.map((item) => item.toJson()).toList()));
+        _user == null ? 'queue' : _queueStorageKeyFor(_user!),
+        jsonEncode(_queue.map((item) => item.toJson()).toList()));
     setState(() {});
+  }
+
+  String _queueStorageKeyFor(AppUser user) =>
+      user.isAppReview ? 'queue_app_review' : 'queue_user_${user.id}';
+
+  Future<void> _loadQueueForUser(AppUser user) async {
+    final queueJson = _prefs?.getString(_queueStorageKeyFor(user));
+    if (queueJson == null) {
+      _queue = [];
+      return;
+    }
+    final list = jsonDecode(queueJson) as List<dynamic>;
+    _queue = list
+        .map((item) => PendingCheck.fromJson(item as Map<String, dynamic>))
+        .toList();
+    _purgeExpiredRejectedChecks();
   }
 
   void _purgeExpiredRejectedChecks() {
@@ -662,6 +710,13 @@ class _AppShellState extends State<AppShell> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_isAppReview)
+            const _InfoCard(
+              title: 'Modo de revision de App Store',
+              child: Text(
+                'Sesion de demostracion aislada. No muestra ni modifica datos operativos y las selfies de prueba no se conservan.',
+              ),
+            ),
           _InfoCard(
             title: _user?.fullName ?? 'Personal',
             child: Text(_storeSummaryText()),
@@ -988,6 +1043,9 @@ class _AppShellState extends State<AppShell> {
     if (stores.isEmpty) {
       return null;
     }
+    if (_bootstrap?.demoMode == true) {
+      return NearestStore(store: stores.first, distanceMeters: 0);
+    }
     NearestStore? nearest;
     for (final store in stores) {
       final distance = distanceMeters(
@@ -1049,6 +1107,9 @@ class _AppShellState extends State<AppShell> {
     final count = _bootstrap?.activeStores.length ?? 0;
     if (count == 0) {
       return 'Sin tiendas activas cargadas. Actualiza con internet.';
+    }
+    if (_bootstrap?.demoMode == true) {
+      return 'Ubicacion virtual de revision activa. El radio de prueba es de 50 m y se centra en este dispositivo.';
     }
     final nearest = _lastNearestStore;
     if (nearest != null) {
@@ -1276,17 +1337,24 @@ class ApiException implements Exception {
 }
 
 class AppUser {
-  AppUser({required this.id, required this.fullName, required this.role});
+  AppUser({
+    required this.id,
+    required this.fullName,
+    required this.role,
+    required this.isAppReview,
+  });
 
   final int id;
   final String fullName;
   final String role;
+  final bool isAppReview;
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
       id: _readInt(json['id']),
       fullName: json['full_name']?.toString() ?? '',
       role: json['role']?.toString() ?? '',
+      isAppReview: json['is_app_review'] == true || json['is_app_review'] == 1,
     );
   }
 
@@ -1294,6 +1362,7 @@ class AppUser {
         'id': id,
         'full_name': fullName,
         'role': role,
+        'is_app_review': isAppReview,
       };
 }
 
@@ -1345,6 +1414,7 @@ class MobileBootstrap {
     required this.activeStores,
     required this.todayChecks,
     required this.requiresLocationVerification,
+    required this.demoMode,
     this.serverTime,
     this.todayDate,
   });
@@ -1352,6 +1422,7 @@ class MobileBootstrap {
   final List<StoreInfo> activeStores;
   final List<TodayCheck> todayChecks;
   final bool requiresLocationVerification;
+  final bool demoMode;
   final String? serverTime;
   final String? todayDate;
 
@@ -1368,6 +1439,7 @@ class MobileBootstrap {
       requiresLocationVerification:
           json['requires_location_verification'] == true ||
               json['requires_location_verification'] == 1,
+      demoMode: json['demo_mode'] == true || json['demo_mode'] == 1,
       serverTime: json['server_time']?.toString(),
       todayDate: json['today_date']?.toString(),
     );
@@ -1377,6 +1449,7 @@ class MobileBootstrap {
         'active_stores': activeStores.map((item) => item.toJson()).toList(),
         'today_checks': todayChecks.map((item) => item.toJson()).toList(),
         'requires_location_verification': requiresLocationVerification,
+        'demo_mode': demoMode,
         'server_time': serverTime,
         'today_date': todayDate,
       };

@@ -27,6 +27,12 @@ if (!$configPath) {
 
 $config = require $configPath;
 
+if (empty($config['allow_install_initial'])) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Instalacion inicial deshabilitada en produccion']);
+    exit;
+}
+
 if (($_GET['key'] ?? '') !== ($config['setup_key'] ?? '')) {
     http_response_code(403);
     echo json_encode(['error' => 'Invalid setup key']);
@@ -37,6 +43,7 @@ $dsn = sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $config['db_host'], $c
 $pdo = new PDO($dsn, $config['db_user'], $config['db_pass'], [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES => false,
 ]);
 
 $schema = [
@@ -145,6 +152,16 @@ $schema = [
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_notices_status_date (status, published_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+    "CREATE TABLE IF NOT EXISTS app_review_sessions (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      token_hash CHAR(64) NOT NULL UNIQUE,
+      checks_json LONGTEXT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_app_review_expires (expires_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
     "CREATE TABLE IF NOT EXISTS schema_migrations (

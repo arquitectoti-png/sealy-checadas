@@ -12,5 +12,13 @@ return [
     // Sin llave, el sistema usa reglas internas de zonas horarias de Mexico.
     'google_timezone_api_key' => '',
     'setup_key' => 'CAMBIA_ESTA_CLAVE_TEMPORAL',
-    'allow_destructive_migrations' => false
+    'allow_install_initial' => false,
+    'allow_web_migrations' => false,
+    'allow_destructive_migrations' => false,
+    // Cuenta temporal y aislada para App Review. Usa password_hash(), nunca texto plano.
+    'app_review_enabled' => false,
+    'app_review_login' => '',
+    'app_review_password_hash' => '',
+    'app_review_expires_at' => '',
+    'app_review_session_ttl_hours' => 24
 ];

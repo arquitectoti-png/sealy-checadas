@@ -23,6 +23,16 @@ outputs/staraz_site_bd_completa.sql
 outputs/SUBIR_A_PLAY_CONSOLE_SOLO_ESTE/
 outputs/play_store_promosoluciones_*/
 outputs/play_store_real_android_*/
+outputs/ios_appstore/
+outputs/app_icon_ios_original_alpha_backup_*/
+outputs/ExportOptions_AppStoreConnect*.plist
+# Capturas fuente de 1320x2868; App Store Connect requiere el juego 1284x2778.
+outputs/app_store_ios_promosoluciones_2026-07-05/
+
+# Private App Review deployment material
+outputs/app_review_deploy_*/
+outputs/app_review_server_config_*.txt
+outputs/app_review_apple_*.md
 
 # Runtime uploads
 outputs/godaddy_prueba/api/uploads/checks/
